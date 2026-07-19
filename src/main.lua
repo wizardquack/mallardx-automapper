@@ -69,7 +69,24 @@ panel:on_message("persist", function(payload)
   end
 end)
 
--- /map — recenter the view on the current room.
-mud.command("map", function()
-  panel:post("recenter", {})
+-- /map            — recenter the view on the current room.
+-- /map reset       — warn; ask for confirmation before wiping.
+-- /map reset confirm — erase THIS world's saved map and start fresh.
+mud.command("map", function(m)
+  local args = ((m and m.args) or ""):gsub("^%s+", ""):gsub("%s+$", "")
+  if args == "" then
+    panel:post("recenter", {})
+  elseif args == "reset" then
+    mud.note("automapper: this erases the saved map for THIS world. "
+      .. "Type '/map reset confirm' to proceed.")
+  elseif args == "reset confirm" then
+    storage.delete("map")
+    -- Reset the live panel to an empty map, then re-seed the current room so
+    -- the wipe is immediate and you're already "here" on the fresh map.
+    panel:post("load", { json = nil, cfg = area_cfg() })
+    if last_room then panel:post("room_seen", last_room) end
+    mud.note("automapper: map reset for this world. Re-walk to rebuild it.")
+  else
+    mud.note("automapper: unknown '/map " .. args .. "'. Use /map or /map reset.")
+  end
 end)

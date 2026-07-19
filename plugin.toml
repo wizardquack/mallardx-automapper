@@ -1,6 +1,6 @@
 id = "net.mallard.automapper"
 name = "Automapper"
-version = "0.1.0"
+version = "0.1.1"
 description = "Universal GMCP-first automapper: builds a live map as you walk."
 language = "lua"
 entry = "src/main.lua"
