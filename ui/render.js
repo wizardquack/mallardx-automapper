@@ -38,9 +38,13 @@ export function computeLayout(map, { cx, cy, scale }) {
 }
 
 export function envColor(env) {
-  if (!env) return "#888888";
+  // Coerce to string defensively: Discworld sends terrain as a number and the
+  // Lua boundary now stringifies it, but guard here too so a stale stored map
+  // with a numeric env still hashes correctly rather than silently going grey.
+  const s = String(env == null ? "" : env);
+  if (!s) return "#888888";
   let h = 0;
-  for (let i = 0; i < env.length; i++) h = (h * 31 + env.charCodeAt(i)) & 0xffffff;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xffffff;
   const r = 80 + (h & 0x7f);
   const g = 80 + ((h >> 7) & 0x7f);
   const b = 80 + ((h >> 14) & 0x7f);

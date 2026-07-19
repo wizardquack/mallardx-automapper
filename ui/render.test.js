@@ -45,4 +45,14 @@ describe("computeLayout", () => {
     expect(envColor("city")).not.toBe(envColor("forest"));
     expect(envColor("")).toMatch(/^#/);
   });
+
+  it("envColor handles numeric env (Discworld terrain codes)", () => {
+    // Discworld sends terrain as a number; envColor must produce a deterministic
+    // non-grey color, not the broken monochrome #505050 from when env.length was undefined.
+    expect(envColor(1)).toBe(envColor(1));
+    expect(envColor(1)).not.toBe(envColor(2));
+    expect(envColor(1).startsWith("#")).toBe(true);
+    expect(envColor(1)).not.toBe("#505050");
+    expect(envColor(1)).not.toBe("#888888");
+  });
 });

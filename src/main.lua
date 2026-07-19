@@ -16,7 +16,9 @@ gmcp.on("room.info", function(_pkg, data)
   last_room = {
     key = tostring(key),
     name = data.name or "",
-    env = data.terrain or data.environment or "",
+    -- Normalize env to string at the boundary: Discworld's `terrain` is a
+    -- number, and downstream JS assumes a string for hashing (envColor).
+    env = tostring(data.terrain or data.environment or ""),
   }
   panel:post("room_seen", last_room)
 end)
