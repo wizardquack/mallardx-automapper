@@ -1,0 +1,14 @@
+{
+  "name": "mallardx-automapper",
+  "version": "0.0.1",
+  "description": "Universal GMCP-first automapper for Mallard.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:lua": "for f in tests/*_test.lua; do luajit \"$f\" || exit 1; done"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.0"
+  }
+}
