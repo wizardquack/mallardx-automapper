@@ -2,34 +2,44 @@
 // current room; only the current z-level is drawn (multi-level view is a
 // later phase).
 
-export function computeLayout(map, { cx, cy, scale }) {
+export function computeLayout(map, { cx, cy, scale, areaId }) {
   const cur = map.currentId != null ? map.rooms[map.currentId] : null;
-  if (!cur) return { rooms: [], exits: [] };
-  const z = cur.coords.z;
+  const viewArea = areaId != null ? areaId : (cur ? cur.areaId : null);
+
+  // Anchor: current room if it's in the viewed area, else the area's first room.
+  let anchor = cur && cur.areaId === viewArea ? cur : null;
+  if (!anchor) {
+    const ids = Object.keys(map.rooms)
+      .filter((id) => map.rooms[id].areaId === viewArea)
+      .sort((a, b) => Number(a) - Number(b));
+    anchor = ids.length ? map.rooms[ids[0]] : null;
+  }
+  if (!anchor) return { rooms: [], exits: [] };
+  const z = anchor.coords.z;
 
   const rooms = [];
-  const onLevel = {};
+  const placed = {};
   for (const id of Object.keys(map.rooms)) {
     const r = map.rooms[id];
-    if (r.coords.z !== z) continue;
-    const px = cx + (r.coords.x - cur.coords.x) * scale;
-    const py = cy + (r.coords.y - cur.coords.y) * scale;
-    onLevel[id] = { px, py };
-    rooms.push({ id, px, py, isCurrent: id === cur.id, env: r.env });
+    if (r.areaId !== viewArea || r.coords.z !== z) continue;
+    const px = cx + (r.coords.x - anchor.coords.x) * scale;
+    const py = cy + (r.coords.y - anchor.coords.y) * scale;
+    placed[id] = { px, py };
+    rooms.push({ id, px, py, isCurrent: cur != null && id === cur.id, env: r.env });
   }
 
   const exits = [];
   const seen = new Set();
   for (const id of Object.keys(map.rooms)) {
     const r = map.rooms[id];
-    if (!onLevel[id]) continue;
+    if (!placed[id]) continue;
     for (const dir of Object.keys(r.exits)) {
       const to = r.exits[dir].to;
-      if (to == null || !onLevel[to]) continue;
+      if (to == null || !placed[to]) continue;
       const key = id < to ? `${id}|${to}` : `${to}|${id}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const a = onLevel[id], b = onLevel[to];
+      const a = placed[id], b = placed[to];
       exits.push({ x1: a.px, y1: a.py, x2: b.px, y2: b.py });
     }
   }
