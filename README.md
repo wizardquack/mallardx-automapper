@@ -6,10 +6,11 @@ many others) — zero configuration.
 
 ## Status
 
-Phase 1 (core auto-map) shipped: auto-creates and links rooms as you move,
-renders a live top-down map with "you are here", persisted per world.
-Speedwalk, manual editing, areas/z-levels, and non-GMCP fingerprint mapping
-land in later phases.
+Phase 1 (core auto-map) + areas shipped: auto-maps and links rooms as you
+move, groups spatially-disjoint regions into separate areas (one shown at a
+time, auto-following you), renders a live top-down map, persisted per world.
+Speedwalk, manual editing, z-levels, and non-GMCP fingerprint mapping land in
+later phases.
 
 ## Development
 
