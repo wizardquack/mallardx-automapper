@@ -19,3 +19,9 @@ body {
 .canvas-wrap { flex: 1; position: relative; overflow: hidden; }
 .map-canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; }
 .map-canvas:active { cursor: grabbing; }
+.area-select {
+  max-width: 42%;
+  background: #111827; color: #e5e7eb;
+  border: 1px solid #374151; border-radius: 6px;
+  padding: 3px 4px; font: inherit;
+}
