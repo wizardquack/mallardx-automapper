@@ -29,3 +29,20 @@ min = 0
 max = 5000
 label = "Speedwalk step delay (ms)"
 description = "Delay between movement commands when speedwalking (used in a later phase)."
+
+[settings.area_strategy]
+type = "enum"
+default = "auto"
+label = "Area detection"
+description = "How rooms are grouped into areas. 'auto' infers from GMCP fields; 'zone' treats a zone/area/domain field value as the area; 'boundary' starts a new area when a flag field (e.g. inside/outside) changes."
+choices = [
+  { value = "auto", label = "Auto (recommended)" },
+  { value = "zone", label = "Zone field" },
+  { value = "boundary", label = "Boundary flag" },
+]
+
+[settings.area_overworld]
+type = "string"
+default = "outside"
+label = "Overworld value"
+description = "In boundary mode, the flag value that represents the shared outdoor/overworld area (Discworld uses 'outside')."
