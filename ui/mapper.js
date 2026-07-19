@@ -1,7 +1,7 @@
 // Iframe glue. Wires the tested engine modules (graph/identity/render) to the
 // canvas and the host `panel` SDK. `panel` is injected by Mallard's SDK shim.
 
-import { createMap, currentRoom, toJSON, fromJSON, listAreas, getRoom } from "./graph.js";
+import { createMap, currentRoom, toJSON, fromJSON, listAreas } from "./graph.js";
 import { resolveRoomSeen } from "./identity.js";
 import { computeLayout, draw } from "./render.js";
 
@@ -14,6 +14,7 @@ let map = createMap();
 let pendingDir = null;
 let viewedAreaId = null;              // which area the panel is showing
 let cfg = { strategy: "auto", overworld: "outside" };  // resolver config (from load)
+let loaded = false;
 const ZOOMS = [16, 24, 32, 44, 60];
 let zoomIdx = 2;
 let panX = 0, panY = 0;
@@ -50,6 +51,9 @@ function focusCurrentArea() {
 
 // ── Rendering ───────────────────────────────────────────────────────────────
 function redraw() {
+  if (viewedAreaId != null && !listAreas(map).some((a) => a.id === viewedAreaId)) {
+    focusCurrentArea();
+  }
   const cw = $canvas.clientWidth, ch = $canvas.clientHeight;
   if ($canvas.width !== cw) $canvas.width = cw;
   if ($canvas.height !== ch) $canvas.height = ch;
@@ -69,6 +73,7 @@ function redraw() {
 panel.on("load", (frame) => {
   map = frame && frame.json ? fromJSON(frame.json) : createMap();
   if (frame && frame.cfg) cfg = { ...cfg, ...frame.cfg };
+  loaded = true;
   focusCurrentArea();
   rebuildAreaSelect();
   redraw();
@@ -80,6 +85,7 @@ panel.on("moved", (frame) => {
 
 panel.on("room_seen", (frame) => {
   if (!frame || !frame.key) return;
+  if (!loaded) return;
   resolveRoomSeen(
     map,
     { key: frame.key, name: frame.name, env: frame.env, areaTag: frame.areaTag, areaField: frame.areaField },

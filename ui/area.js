@@ -46,6 +46,9 @@ function resolveBoundary(map, seen, prev, cfg) {
   return addArea(map, { key: null, label: seen.name || "Interior" }).id;
 }
 
+// Note: on worlds that send an area/zone/kind field only intermittently, `auto`
+// makes no-tag rooms inherit the previous room's area. Such worlds are best
+// served by an explicit `area_strategy` rather than relying on `auto`.
 function resolveFallback(map, prev) {
   if (prev && prev.areaId != null) return prev.areaId;
   return ensureArea(map, "__default__", "Map");
