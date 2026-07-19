@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createMap, getRoomByKey, currentRoom } from "./graph.js";
+import { createMap, getRoomByKey, currentRoom, getRoom, getArea } from "./graph.js";
 import { resolveRoomSeen } from "./identity.js";
 
 describe("resolveRoomSeen", () => {
@@ -71,5 +71,56 @@ describe("resolveRoomSeen", () => {
     // room.info fires again for the SAME room while a stale pendingDir is armed.
     resolveRoomSeen(m, { key: "A", name: "A", env: "" }, "n");
     expect(a.exits).toEqual({});
+  });
+
+  const KIND = { strategy: "auto", overworld: "outside" };
+
+  it("crossing into a NEW area places the room at that area's origin", () => {
+    const m = createMap();
+    // outside street room
+    const a = resolveRoomSeen(m, { key: "A", name: "Street", areaTag: "outside", areaField: "kind" }, null, KIND).room;
+    // step 'n' into a building interior -> new area, origin placement
+    const b = resolveRoomSeen(m, { key: "B", name: "Hall", areaTag: "inside", areaField: "kind" }, "n", KIND).room;
+    expect(b.areaId).not.toBe(a.areaId);
+    expect(b.coords).toEqual({ x: 0, y: 0, z: 0 });
+    // cross-area exit still recorded both ways for future navigation
+    expect(a.exits.n).toEqual({ to: b.id });
+    expect(b.exits.s).toEqual({ to: a.id });
+  });
+
+  it("same-area directional step uses vector placement", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "Hall", areaTag: "inside", areaField: "kind" }, null, KIND).room;
+    const b = resolveRoomSeen(m, { key: "B", name: "Kitchen", areaTag: "inside", areaField: "kind" }, "n", KIND).room;
+    expect(b.areaId).toBe(a.areaId);
+    expect(b.coords).toEqual({ x: 0, y: -1, z: 0 });
+  });
+
+  it("crossing back into an existing area avoids colliding with its origin room", () => {
+    const m = createMap();
+    // overworld room O at origin of the overworld area
+    const o = resolveRoomSeen(m, { key: "O", name: "Street", areaTag: "outside", areaField: "kind" }, null, KIND).room;
+    expect(o.coords).toEqual({ x: 0, y: 0, z: 0 });
+    // go inside (new interior area)
+    resolveRoomSeen(m, { key: "I", name: "Shop", areaTag: "inside", areaField: "kind" }, "n", KIND);
+    // leave by a different door to a NEW overworld room -> back into overworld area
+    const o2 = resolveRoomSeen(m, { key: "O2", name: "Alley", areaTag: "outside", areaField: "kind" }, "s", KIND).room;
+    expect(o2.areaId).toBe(o.areaId);
+    // must NOT land on O's origin cell
+    expect(o2.coords).not.toEqual(o.coords);
+    expect(o2.coords).toEqual({ x: 1, y: 0, z: 0 });
+  });
+
+  it("traversal between two already-known rooms in different areas links without moving them", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "Street", areaTag: "outside", areaField: "kind" }, null, KIND).room;
+    const b = resolveRoomSeen(m, { key: "B", name: "Hall", areaTag: "inside", areaField: "kind" }, "n", KIND).room;
+    const bCoords = { ...b.coords };
+    // walk back to A, then back into the already-known B
+    resolveRoomSeen(m, { key: "A", name: "Street", areaTag: "outside", areaField: "kind" }, "s", KIND);
+    const r = resolveRoomSeen(m, { key: "B", name: "Hall", areaTag: "inside", areaField: "kind" }, "n", KIND);
+    expect(r.created).toBe(false);
+    expect(getRoom(m, b.id).coords).toEqual(bCoords); // unmoved
+    expect(a.exits.n).toEqual({ to: b.id });
   });
 });
