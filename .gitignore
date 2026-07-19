@@ -1,0 +1,15 @@
+# Superpowers design/plan docs are kept locally, not committed to this repo.
+docs/superpowers/
+
+# Node
+node_modules/
+
+# Build / packaging
+*.mallardx
+dist/
+
+# Editor / OS cruft
+.DS_Store
+*.swp
+.#*
+\#*#
