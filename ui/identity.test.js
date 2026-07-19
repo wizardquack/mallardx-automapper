@@ -49,4 +49,27 @@ describe("resolveRoomSeen", () => {
     expect(b.exits).toEqual({});
     expect(currentRoom(m)).toBe(b);
   });
+
+  it("links two already-known rooms when traversed after both exist (loop closing)", () => {
+    const m = createMap();
+    // A is current; B is discovered out-of-band (teleport) so it is NOT linked to A.
+    const a = resolveRoomSeen(m, { key: "A", name: "A", env: "" }, null).room;
+    const b = resolveRoomSeen(m, { key: "B", name: "B", env: "" }, null).room;
+    expect(a.exits).toEqual({});
+    // Return to A, then walk east into the already-known B: the edge must be recorded.
+    resolveRoomSeen(m, { key: "A", name: "A", env: "" }, null);
+    const { room, created } = resolveRoomSeen(m, { key: "B", name: "B", env: "" }, "e");
+    expect(created).toBe(false);
+    expect(room).toBe(b);
+    expect(a.exits.e).toEqual({ to: b.id });
+    expect(b.exits.w).toEqual({ to: a.id });
+  });
+
+  it("does not self-link when the same room re-reports with a direction (look)", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "A", env: "" }, null).room;
+    // room.info fires again for the SAME room while a stale pendingDir is armed.
+    resolveRoomSeen(m, { key: "A", name: "A", env: "" }, "n");
+    expect(a.exits).toEqual({});
+  });
 });
