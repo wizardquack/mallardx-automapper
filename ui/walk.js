@@ -61,7 +61,11 @@ export function createWalk(cfg) {
       if (index >= path.length) return done();
       return sendStep(index, now);
     }
-    return [];   // delay: arrivals don't advance
+    // delay: arrivals advance the placement cursor (not the send clock),
+    // so each room is placed along the dir that actually reached it even
+    // when the clock has already sent later steps.
+    if (drain < path.length) drain++;
+    return [];
   }
 
   function onTick(now) {
@@ -95,8 +99,8 @@ export function createWalk(cfg) {
 
   function pendingDir() {
     if (!active) return null;
-    if (mode === "batched") return path[drain] ? path[drain].dir : null;
-    return path[index] ? path[index].dir : null;
+    if (mode === "batched" || mode === "delay") return path[drain] ? path[drain].dir : null;
+    return path[index] ? path[index].dir : null;   // safe: in-flight step (arrival-gated)
   }
 
   return { start, onRoomSeen, onTick, onUserInput, stop, pendingDir, isActive: () => active };

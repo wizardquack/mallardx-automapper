@@ -40,6 +40,16 @@ describe("walk: delay mode", () => {
     expect(w.onTick(250)).toEqual([{ type: "send", cmd: "n" }]);
     expect(w.onTick(500)).toEqual([{ type: "done" }]);
   });
+
+  it("places each arrival along the dir that reached it, even when the clock already sent the next step", () => {
+    const w = createWalk({ mode: "delay", delayMs: 250 });
+    w.start(P, 0);                                        // sends step 0; drain=0
+    expect(w.pendingDir()).toBe("e");                    // first arrival places along step 0
+    expect(w.onTick(250)).toEqual([{ type: "send", cmd: "n" }]);  // clock sends step 1 first (high latency)
+    expect(w.pendingDir()).toBe("e");                    // step-0 arrival must STILL place along "e"
+    w.onRoomSeen("2", 300);                              // arrival advances the placement cursor
+    expect(w.pendingDir()).toBe("n");                    // next arrival places along step 1
+  });
 });
 
 describe("walk: batched mode", () => {
