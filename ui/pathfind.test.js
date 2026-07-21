@@ -1,0 +1,70 @@
+import { describe, it, expect } from "vitest";
+import { createMap, addRoom, linkExit } from "./graph.js";
+import { findPath, distances } from "./pathfind.js";
+
+// Build a chain r0 -e-> r1 -e-> ... with reverse w links; returns the room objects.
+function line(map, n) {
+  const rooms = [];
+  for (let i = 0; i < n; i++) rooms.push(addRoom(map, { key: `k${i}`, name: `R${i}` }));
+  for (let i = 0; i < n - 1; i++) {
+    linkExit(map, rooms[i].id, "e", rooms[i + 1].id);
+    linkExit(map, rooms[i + 1].id, "w", rooms[i].id);
+  }
+  return rooms;
+}
+
+describe("findPath", () => {
+  it("returns an empty path when already at the destination", () => {
+    const m = createMap();
+    const [a] = line(m, 1);
+    expect(findPath(m, a.id, a.id)).toEqual([]);
+  });
+
+  it("finds a straight-line path following stored exits", () => {
+    const m = createMap();
+    const r = line(m, 3);
+    const path = findPath(m, r[0].id, r[2].id);
+    expect(path.map((s) => s.dir)).toEqual(["e", "e"]);
+    expect(path[0].fromId).toBe(r[0].id);
+    expect(path[1].toId).toBe(r[2].id);
+  });
+
+  it("returns null when the destination is unreachable", () => {
+    const m = createMap();
+    const r = line(m, 2);
+    const island = addRoom(m, { key: "iso", name: "Island" });
+    expect(findPath(m, r[0].id, island.id)).toBeNull();
+  });
+
+  it("routes across areas (exits are not area-filtered)", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", name: "Street", areaId: "1" });
+    const b = addRoom(m, { key: "b", name: "Hall", areaId: "2" });
+    linkExit(m, a.id, "n", b.id);
+    linkExit(m, b.id, "s", a.id);
+    expect(findPath(m, a.id, b.id).map((s) => s.dir)).toEqual(["n"]);
+  });
+
+  it("picks the shorter of two routes (BFS shortest hop)", () => {
+    const m = createMap();
+    const r = [];
+    for (let i = 0; i < 3; i++) r.push(addRoom(m, { key: `s${i}`, name: `S${i}` }));
+    linkExit(m, r[0].id, "e", r[1].id); linkExit(m, r[1].id, "w", r[0].id);
+    linkExit(m, r[1].id, "e", r[2].id); linkExit(m, r[2].id, "w", r[1].id);
+    linkExit(m, r[0].id, "ne", r[2].id); linkExit(m, r[2].id, "sw", r[0].id);
+    expect(findPath(m, r[0].id, r[2].id).map((s) => s.dir)).toEqual(["ne"]);
+  });
+});
+
+describe("distances", () => {
+  it("labels BFS hop counts and omits unreachable rooms", () => {
+    const m = createMap();
+    const r = line(m, 3);
+    const iso = addRoom(m, { key: "iso", name: "Iso" });
+    const d = distances(m, r[0].id);
+    expect(d[r[0].id]).toBe(0);
+    expect(d[r[1].id]).toBe(1);
+    expect(d[r[2].id]).toBe(2);
+    expect(d[iso.id]).toBeUndefined();
+  });
+});
