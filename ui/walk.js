@@ -28,18 +28,18 @@ export function createWalk(cfg) {
   function abort(reason) { active = false; return [{ type: "aborted", reason }]; }
 
   function sendStep(i, now) {
-    lastAt = now || 0;
+    lastAt = now ?? 0;
     if (mode === "safe") awaiting = true;
     return [{ type: "send", cmd: path[i].dir }];
   }
 
   function start(p, now) {
     path = Array.isArray(p) ? p : [];
-    index = 0; drain = 0; awaiting = false; lastAt = now || 0;
+    index = 0; drain = 0; awaiting = false; lastAt = now ?? 0;
     if (path.length === 0) { active = false; return [{ type: "done" }]; }
     active = true;
     if (mode === "batched") {
-      lastAt = now || 0;
+      lastAt = now ?? 0;
       return [{ type: "send", cmd: path.map((s) => s.dir).join(separator) }];
     }
     return sendStep(0, now);
@@ -50,7 +50,7 @@ export function createWalk(cfg) {
     if (mode === "batched") {
       drain++;
       if (drain >= path.length) return done();
-      lastAt = now || 0;
+      lastAt = now ?? 0;
       return [];
     }
     if (mode === "safe") {
