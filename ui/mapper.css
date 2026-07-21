@@ -25,3 +25,16 @@ body {
   border: 1px solid #374151; border-radius: 6px;
   padding: 3px 4px; font: inherit;
 }
+.search-bar { position: relative; padding: 0 8px 6px; }
+.search-box {
+  width: 100%; background: #111827; color: #e5e7eb;
+  border: 1px solid #374151; border-radius: 6px; padding: 4px 6px; font: inherit;
+}
+.search-results {
+  position: absolute; left: 8px; right: 8px; top: 100%; z-index: 5;
+  max-height: 40vh; overflow: auto;
+  background: #0f1622; border: 1px solid #374151; border-radius: 6px;
+}
+.search-result { padding: 4px 8px; cursor: pointer; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.search-result:hover { background: #1f2937; }

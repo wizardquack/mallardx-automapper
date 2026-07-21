@@ -10,10 +10,16 @@
     <select class="area-select" title="Area"></select>
     <span class="room-name">Not mapping</span>
     <span class="spacer"></span>
+    <button class="z-down" type="button" title="Down a floor">▼</button>
+    <button class="z-up"   type="button" title="Up a floor">▲</button>
     <button class="recenter" type="button" title="Recenter on me">⌖</button>
     <button class="zoom-out" type="button" title="Zoom out">−</button>
     <button class="zoom-in"  type="button" title="Zoom in">+</button>
   </header>
+  <div class="search-bar">
+    <input class="search-box" type="text" placeholder="Find a room… (Enter to walk)" />
+    <div class="search-results" hidden></div>
+  </div>
   <div class="canvas-wrap">
     <canvas class="map-canvas"></canvas>
   </div>
