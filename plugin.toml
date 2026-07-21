@@ -46,3 +46,34 @@ type = "string"
 default = "outside"
 label = "Overworld value"
 description = "In boundary mode, the flag value that represents the shared outdoor/overworld area (Discworld uses 'outside')."
+
+[settings.speedwalk_mode]
+type = "enum"
+default = "safe"
+label = "Speedwalk mode"
+description = "How movement is paced when speedwalking. 'safe' waits for each room to confirm before the next step; 'delay' fires steps on a fixed timer; 'batched' sends the whole route as one command-separated line."
+choices = [
+  { value = "safe", label = "Safe (confirm each step)" },
+  { value = "delay", label = "Delay (fixed pacing)" },
+  { value = "batched", label = "Batched (one line)" },
+]
+
+[settings.speedwalk_separator]
+type = "string"
+default = ";"
+label = "Command separator (batched mode)"
+description = "In batched mode, the separator joining stacked movement commands (e.g. 'n;n;e'). Must match what your MUD accepts for command stacking."
+
+[settings.speedwalk_timeout_ms]
+type = "number"
+default = 4000
+min = 250
+max = 60000
+label = "Safe-walk step timeout (ms)"
+description = "In safe mode, abort the walk if a step isn't confirmed by a new room within this many milliseconds."
+
+[settings.speedwalk_abort_on_input]
+type = "bool"
+default = true
+label = "Typed input cancels speedwalk"
+description = "When on, typing any command while a speedwalk is running cancels it. '/map stop' always cancels regardless."
