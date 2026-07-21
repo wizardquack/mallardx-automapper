@@ -32,7 +32,7 @@ describe("computeLayout", () => {
   it("emits an exit segment between linked same-level rooms", () => {
     const { m } = sampleMap();
     const layout = computeLayout(m, { cx: 100, cy: 100, scale: 40 });
-    expect(layout.exits).toContainEqual({ x1: 100, y1: 100, x2: 100, y2: 60 });
+    expect(layout.exits).toContainEqual({ x1: 100, y1: 100, x2: 100, y2: 60, onPath: false });
   });
 
   it("returns empty layout with no current room", () => {
@@ -94,5 +94,41 @@ describe("computeLayout", () => {
     expect(layout.rooms.length).toBe(1);
     // anchored (centered) on the browsed area's own room; not marked current
     expect(layout.rooms[0]).toMatchObject({ id: browsed.id, px: 100, py: 100, isCurrent: false });
+  });
+});
+
+// --- appended to ui/render.test.js ---
+import { computeLayout as computeLayoutP2 } from "./render.js";
+import { createMap as createMapP2, addRoom as addRoomP2, linkExit as linkExitP2 } from "./graph.js";
+
+describe("computeLayout: viewedZ + path highlight (Phase 2)", () => {
+  it("honors an explicit viewedZ override instead of the current room's z", () => {
+    const m = createMapP2();
+    const a = addRoomP2(m, { key: "a", name: "Ground", coords: { x: 0, y: 0, z: 0 }, areaId: "1" });
+    const up = addRoomP2(m, { key: "b", name: "Upstairs", coords: { x: 0, y: 0, z: 1 }, areaId: "1" });
+    m.currentId = a.id;
+    const layout = computeLayoutP2(m, { cx: 0, cy: 0, scale: 10, areaId: "1", viewedZ: 1 });
+    expect(layout.rooms.map((r) => r.id)).toEqual([up.id]);
+  });
+
+  it("tags rooms and exits that lie on the highlighted path", () => {
+    const m = createMapP2();
+    const a = addRoomP2(m, { key: "a", name: "A", coords: { x: 0, y: 0, z: 0 }, areaId: "1" });
+    const b = addRoomP2(m, { key: "b", name: "B", coords: { x: 1, y: 0, z: 0 }, areaId: "1" });
+    linkExitP2(m, a.id, "e", b.id); linkExitP2(m, b.id, "w", a.id);
+    m.currentId = a.id;
+    const edgeKey = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
+    const path = { rooms: new Set([a.id, b.id]), edges: new Set([edgeKey]) };
+    const layout = computeLayoutP2(m, { cx: 0, cy: 0, scale: 10, areaId: "1", path });
+    expect(layout.rooms.every((r) => r.onPath)).toBe(true);
+    expect(layout.exits[0].onPath).toBe(true);
+  });
+
+  it("leaves onPath false when no path is supplied (Phase-1 behavior)", () => {
+    const m = createMapP2();
+    const a = addRoomP2(m, { key: "a", name: "A", coords: { x: 0, y: 0, z: 0 }, areaId: "1" });
+    m.currentId = a.id;
+    const layout = computeLayoutP2(m, { cx: 0, cy: 0, scale: 10, areaId: "1" });
+    expect(layout.rooms[0].onPath).toBe(false);
   });
 });

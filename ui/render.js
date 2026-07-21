@@ -2,12 +2,17 @@
 // current room; only the current z-level is drawn (multi-level view is a
 // later phase).
 
-export function computeLayout(map, { cx, cy, scale, areaId }) {
+export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path = null, anchorId = null }) {
   const cur = map.currentId != null ? map.rooms[map.currentId] : null;
   const viewArea = areaId != null ? areaId : (cur ? cur.areaId : null);
 
-  // Anchor: current room if it's in the viewed area, else the area's first room.
-  let anchor = cur && cur.areaId === viewArea ? cur : null;
+  // Anchor precedence: an explicit in-area anchorId, else the current room if
+  // it's in the viewed area, else the area's first room.
+  let anchor = null;
+  if (anchorId != null && map.rooms[anchorId] && map.rooms[anchorId].areaId === viewArea) {
+    anchor = map.rooms[anchorId];
+  }
+  if (!anchor) anchor = cur && cur.areaId === viewArea ? cur : null;
   if (!anchor) {
     const ids = Object.keys(map.rooms)
       .filter((id) => map.rooms[id].areaId === viewArea)
@@ -15,7 +20,10 @@ export function computeLayout(map, { cx, cy, scale, areaId }) {
     anchor = ids.length ? map.rooms[ids[0]] : null;
   }
   if (!anchor) return { rooms: [], exits: [] };
-  const z = anchor.coords.z;
+  const z = viewedZ != null ? viewedZ : anchor.coords.z;
+
+  const pathRooms = path && path.rooms ? path.rooms : null;
+  const pathEdges = path && path.edges ? path.edges : null;
 
   const rooms = [];
   const placed = {};
@@ -25,7 +33,12 @@ export function computeLayout(map, { cx, cy, scale, areaId }) {
     const px = cx + (r.coords.x - anchor.coords.x) * scale;
     const py = cy + (r.coords.y - anchor.coords.y) * scale;
     placed[id] = { px, py };
-    rooms.push({ id, px, py, isCurrent: cur != null && id === cur.id, env: r.env });
+    rooms.push({
+      id, px, py,
+      isCurrent: cur != null && id === cur.id,
+      onPath: pathRooms ? pathRooms.has(id) : false,
+      env: r.env,
+    });
   }
 
   const exits = [];
@@ -40,7 +53,10 @@ export function computeLayout(map, { cx, cy, scale, areaId }) {
       if (seen.has(key)) continue;
       seen.add(key);
       const a = placed[id], b = placed[to];
-      exits.push({ x1: a.px, y1: a.py, x2: b.px, y2: b.py });
+      exits.push({
+        x1: a.px, y1: a.py, x2: b.px, y2: b.py,
+        onPath: pathEdges ? pathEdges.has(key) : false,
+      });
     }
   }
 
@@ -63,19 +79,20 @@ export function envColor(env) {
 
 export function draw(ctx, layout, { roomSize }) {
   const half = roomSize / 2;
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = "#6b7280";
   for (const e of layout.exits) {
     ctx.beginPath();
     ctx.moveTo(e.x1, e.y1);
     ctx.lineTo(e.x2, e.y2);
+    ctx.strokeStyle = e.onPath ? "#38bdf8" : "#6b7280";
+    ctx.lineWidth = e.onPath ? 4 : 2;
     ctx.stroke();
   }
   for (const r of layout.rooms) {
     ctx.fillStyle = envColor(r.env);
     ctx.fillRect(r.px - half, r.py - half, roomSize, roomSize);
-    ctx.strokeStyle = r.isCurrent ? "#facc15" : "#1f2937";
-    ctx.lineWidth = r.isCurrent ? 3 : 1;
+    if (r.isCurrent) { ctx.strokeStyle = "#facc15"; ctx.lineWidth = 3; }
+    else if (r.onPath) { ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 2; }
+    else { ctx.strokeStyle = "#1f2937"; ctx.lineWidth = 1; }
     ctx.strokeRect(r.px - half, r.py - half, roomSize, roomSize);
   }
 }
