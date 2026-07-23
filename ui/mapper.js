@@ -3,8 +3,13 @@
 // Mallard's SDK shim.
 
 import {
-  createMap, currentRoom, toJSON, fromJSON, listAreas, getRoom, getArea,
+  createMap, currentRoom, toJSON, fromJSON, listAreas, getRoom, getArea, setCurrent,
 } from "./graph.js";
+import { renameRoom, deleteRoom, mergeRooms, addExit, deleteExit, setOneWay,
+  moveRoom, isCellOccupied, moveToArea, computePocket, movePocket } from "./edits.js";
+import { createHistory } from "./history.js";
+import { roomMenuModel } from "./editmenu.js";
+import { addArea } from "./graph.js";
 import { resolveRoomSeen } from "./identity.js";
 import { computeLayout, draw } from "./render.js";
 import { findPath } from "./pathfind.js";
@@ -30,6 +35,8 @@ let walkCfg = { mode: "safe", delayMs: 250, separator: ";", timeoutMs: 4000, abo
 let loaded = false;
 let walk = null;
 let walkTimer = null;
+const history = createHistory();
+let pendingMode = null;   // { kind: "merge"|"addExit", ... } for two-step actions
 const ZOOMS = [16, 24, 32, 44, 60];
 let zoomIdx = 2;
 let panX = 0, panY = 0;
@@ -44,6 +51,33 @@ function schedulePersist() {
     persistTimer = null;
     panel.post("persist", { json: toJSON(map) });
   }, 500);
+}
+
+// Every user edit goes through here: snapshot the pre-edit map, run the
+// mutation, and (only if it changed something) persist + redraw. Keeps undo,
+// persistence, and rendering uniform.
+function applyEdit(fn) {
+  const before = toJSON(map);
+  const ok = fn();
+  if (!ok) return false;
+  history.push(before);
+  rebuildAreaSelect();
+  redraw();
+  schedulePersist();
+  return true;
+}
+
+function doUndo() {
+  const restored = history.undo(toJSON(map));
+  if (restored == null) return;
+  map = fromJSON(restored);
+  focusCurrentArea(); rebuildAreaSelect(); redraw(); schedulePersist();
+}
+function doRedo() {
+  const restored = history.redo(toJSON(map));
+  if (restored == null) return;
+  map = fromJSON(restored);
+  focusCurrentArea(); rebuildAreaSelect(); redraw(); schedulePersist();
 }
 
 // ── Area switcher ───────────────────────────────────────────────────────────
@@ -171,6 +205,101 @@ function notifyCandidates(candidates, verb) {
   panel.post("notify", { text: `Ambiguous — ${candidates.length} matches: ${names}. Use /goto #id.` });
 }
 
+// ── Inline widgets (no native prompt/confirm — broken in Mallard's WebView) ──
+// Inline text prompt — resolves to the trimmed string, or null on cancel.
+// window.prompt does not work in Mallard's WebView, so we build our own.
+function inlinePrompt(title, initial = "") {
+  return new Promise((resolve) => {
+    const back = document.createElement("div");
+    back.className = "edit-modal-back";
+    back.innerHTML =
+      `<div class="edit-modal"><div class="edit-modal-title"></div>` +
+      `<input class="edit-modal-input" type="text"/>` +
+      `<div class="edit-modal-row"><button class="edit-cancel">Cancel</button>` +
+      `<button class="edit-ok">OK</button></div></div>`;
+    back.querySelector(".edit-modal-title").textContent = title;
+    const input = back.querySelector(".edit-modal-input");
+    input.value = initial;
+    document.body.appendChild(back);
+    input.focus(); input.select();
+    const done = (val) => { back.remove(); resolve(val); };
+    back.querySelector(".edit-ok").addEventListener("click", () => done(input.value.trim() || null));
+    back.querySelector(".edit-cancel").addEventListener("click", () => done(null));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") done(input.value.trim() || null);
+      else if (e.key === "Escape") done(null);
+    });
+  });
+}
+
+// Inline confirm — resolves true/false.
+function inlineConfirm(message) {
+  return new Promise((resolve) => {
+    const back = document.createElement("div");
+    back.className = "edit-modal-back";
+    back.innerHTML =
+      `<div class="edit-modal"><div class="edit-modal-title"></div>` +
+      `<div class="edit-modal-row"><button class="edit-cancel">Cancel</button>` +
+      `<button class="edit-ok edit-danger">Delete</button></div></div>`;
+    back.querySelector(".edit-modal-title").textContent = message;
+    document.body.appendChild(back);
+    back.querySelector(".edit-ok").focus();
+    const done = (val) => { back.remove(); resolve(val); };
+    back.querySelector(".edit-ok").addEventListener("click", () => done(true));
+    back.querySelector(".edit-cancel").addEventListener("click", () => done(false));
+    back.addEventListener("keydown", (e) => { if (e.key === "Escape") done(false); });
+  });
+}
+
+// ── Menu action dispatcher ────────────────────────────────────────────────────
+async function handleMenuAction(action, arg, roomId) {
+  if (action === "rename") {
+    const r = getRoom(map, roomId); if (!r) return;
+    const name = await inlinePrompt("Rename room", r.name || "");
+    if (name != null) applyEdit(() => renameRoom(map, roomId, name));
+  } else if (action === "setCurrent") {
+    applyEdit(() => { setCurrent(map, roomId); return true; });
+  } else if (action === "deleteRoom") {
+    const ok = await inlineConfirm("Delete this room?");
+    if (ok) applyEdit(() => deleteRoom(map, roomId));
+  } else if (action === "merge") {
+    pendingMode = { kind: "merge", fromId: roomId };
+    panel.post("notify", { text: "Click the room to merge this one INTO (Esc to cancel)." });
+  } else if (action === "addExit") {
+    pendingMode = { kind: "addExit", fromId: roomId, dir: arg };
+    panel.post("notify", { text: `Click the target room for the '${arg}' exit (Esc to cancel).` });
+  } else if (action === "deleteExit") {
+    applyEdit(() => deleteExit(map, roomId, arg));
+  } else if (action === "toggleOneWay") {
+    applyEdit(() => setOneWay(map, roomId, arg.dir, arg.oneWay));
+  } else if (action === "moveToArea") {
+    await doAreaMove(roomId, arg, false);
+  } else if (action === "movePocket") {
+    await doAreaMove(roomId, arg, true);
+  }
+}
+
+// Walk the pure descriptor, binding onClick handlers the panel.menu SDK expects.
+function bindMenuActions(nodes, roomId) {
+  return nodes.map((n) => {
+    const item = { ...n };
+    if (item.submenu) item.submenu = bindMenuActions(item.submenu, roomId);
+    if (item.action) {
+      const { action, arg } = item;
+      item.onClick = () => handleMenuAction(action, arg, roomId);
+    }
+    delete item.action; delete item.arg;
+    return item;
+  });
+}
+
+function openRoomMenu(clientX, clientY, roomId) {
+  const nodes = bindMenuActions(roomMenuModel(map, roomId, listAreas(map)), roomId);
+  panel.menu.show({ x: clientX, y: clientY }, nodes);
+}
+
+async function doAreaMove(/* roomId, arg, pocket */) { /* implemented in Task 11 */ }
+
 // ── Host messages ────────────────────────────────────────────────────────────
 panel.on("load", (frame) => {
   map = frame && frame.json ? fromJSON(frame.json) : createMap();
@@ -199,6 +328,7 @@ panel.on("room_seen", (frame) => {
     pendingDir,
     cfg,
   );
+  history.clear();
   pendingDir = null;
   if (walk && walk.isActive()) {
     dispatchWalkActions(walk.onRoomSeen(map.currentId, now()));
@@ -313,6 +443,20 @@ $canvas.addEventListener("click", (e) => {
 $canvas.addEventListener("dblclick", (e) => {
   const id = roomAt(e.clientX, e.clientY);
   if (id != null) startWalk(id);
+});
+$canvas.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  const id = roomAt(e.clientX, e.clientY);
+  if (id != null) openRoomMenu(e.clientX, e.clientY, id);
+});
+
+window.addEventListener("keydown", (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (!mod) return;
+  if (e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); doUndo(); }
+  else if ((e.key.toLowerCase() === "z" && e.shiftKey) || e.key.toLowerCase() === "y") {
+    e.preventDefault(); doRedo();
+  }
 });
 window.addEventListener("resize", redraw);
 
