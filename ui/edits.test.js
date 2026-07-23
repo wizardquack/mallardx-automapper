@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { createMap, addRoom, linkExit, setCurrent, getRoom } from "./graph.js";
 import {
   renameRoom, deleteRoom, mergeRooms, addExit, deleteExit, setOneWay,
-  isCellOccupied, freeCell, moveRoom,
+  isCellOccupied, freeCell, moveRoom, moveToArea, computePocket, movePocket,
 } from "./edits.js";
 
 describe("renameRoom", () => {
@@ -193,5 +193,60 @@ describe("moveRoom", () => {
   it("returns false for a missing room", () => {
     const m = createMap();
     expect(moveRoom(m, "999", 1, 1)).toBe(false);
+  });
+});
+
+describe("moveToArea", () => {
+  it("reassigns the area and re-places into a free cell", () => {
+    const m = createMap();
+    addRoom(m, { key: "occ", name: "Occ", coords: { x: 0, y: 0, z: 0 }, areaId: "2" });
+    const r = addRoom(m, { key: "r", name: "R", coords: { x: 9, y: 9, z: 0 }, areaId: "1" });
+    expect(moveToArea(m, r.id, "2")).toBe(true);
+    expect(m.rooms[r.id].areaId).toBe("2");
+    expect(m.rooms[r.id].coords).toEqual({ x: 1, y: 0, z: 0 }); // 0,0 taken by "occ"
+  });
+});
+
+describe("computePocket", () => {
+  it("floods only rooms in the seed's area", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", name: "A", areaId: "1" });
+    const b = addRoom(m, { key: "b", name: "B", areaId: "1" });
+    const c = addRoom(m, { key: "c", name: "C", areaId: "2" }); // other area
+    addExit(m, a.id, "e", b.id);
+    addExit(m, b.id, "e", c.id); // crosses into area 2
+    const ids = computePocket(m, a.id).sort();
+    expect(ids).toEqual([a.id, b.id].sort());
+    expect(ids).not.toContain(c.id);
+  });
+  it("returns an empty list for a missing seed", () => {
+    const m = createMap();
+    expect(computePocket(m, "999")).toEqual([]);
+  });
+});
+
+describe("movePocket", () => {
+  it("moves all rooms to the target area preserving relative coords", () => {
+    const m = createMap();
+    // target area "2" occupies x:0 and x:1 at y:0
+    addRoom(m, { key: "t0", name: "T0", coords: { x: 0, y: 0, z: 0 }, areaId: "2" });
+    addRoom(m, { key: "t1", name: "T1", coords: { x: 1, y: 0, z: 0 }, areaId: "2" });
+    // pocket in area "1": two rooms one apart in x
+    const p0 = addRoom(m, { key: "p0", name: "P0", coords: { x: 5, y: 0, z: 0 }, areaId: "1" });
+    const p1 = addRoom(m, { key: "p1", name: "P1", coords: { x: 6, y: 1, z: 0 }, areaId: "1" });
+    expect(movePocket(m, [p0.id, p1.id], "2")).toBe(true);
+    expect(m.rooms[p0.id].areaId).toBe("2");
+    expect(m.rooms[p1.id].areaId).toBe("2");
+    // relative offset preserved (p1 is +1x,+1y from p0)
+    const c0 = m.rooms[p0.id].coords, c1 = m.rooms[p1.id].coords;
+    expect(c1.x - c0.x).toBe(1);
+    expect(c1.y - c0.y).toBe(1);
+    // landed clear of target rooms (all pocket x > max target x = 1)
+    expect(c0.x).toBeGreaterThan(1);
+    expect(isCellOccupied(m, "2", c0.x, c0.y, c0.z, p0.id)).toBe(false);
+  });
+  it("returns false for an empty id list", () => {
+    const m = createMap();
+    expect(movePocket(m, [], "2")).toBe(false);
   });
 });

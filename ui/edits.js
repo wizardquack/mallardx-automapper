@@ -113,3 +113,60 @@ export function moveRoom(map, id, x, y) {
   r.coords = { x, y, z: r.coords.z };
   return true;
 }
+
+export function moveToArea(map, id, areaId) {
+  const r = map.rooms[id];
+  if (!r) return false;
+  r.areaId = areaId;
+  r.coords = freeCell(map, areaId);
+  return true;
+}
+
+export function computePocket(map, seedId) {
+  const seed = map.rooms[seedId];
+  if (!seed) return [];
+  const areaId = seed.areaId;
+  const seen = new Set([seedId]);
+  const queue = [seedId];
+  while (queue.length) {
+    const cur = map.rooms[queue.shift()];
+    for (const dir of Object.keys(cur.exits)) {
+      const to = cur.exits[dir].to;
+      const dest = map.rooms[to];
+      if (!dest || dest.areaId !== areaId || seen.has(to)) continue;
+      seen.add(to);
+      queue.push(to);
+    }
+  }
+  return Array.from(seen);
+}
+
+export function movePocket(map, ids, areaId) {
+  if (!ids || ids.length === 0) return false;
+  // Largest x among existing target-area rooms not in the pocket.
+  const moving = new Set(ids);
+  let maxX = null;
+  for (const id of Object.keys(map.rooms)) {
+    const r = map.rooms[id];
+    if (r.areaId === areaId && !moving.has(id)) {
+      maxX = maxX == null ? r.coords.x : Math.max(maxX, r.coords.x);
+    }
+  }
+  // Smallest x within the pocket, to compute a shift that clears the target.
+  let pocketMinX = null;
+  for (const id of ids) {
+    const r = map.rooms[id];
+    if (!r) continue;
+    pocketMinX = pocketMinX == null ? r.coords.x : Math.min(pocketMinX, r.coords.x);
+  }
+  if (pocketMinX == null) return false;
+  const gap = 2;
+  const shiftX = maxX == null ? -pocketMinX : (maxX + gap - pocketMinX);
+  for (const id of ids) {
+    const r = map.rooms[id];
+    if (!r) continue;
+    r.areaId = areaId;
+    r.coords = { x: r.coords.x + shiftX, y: r.coords.y, z: r.coords.z };
+  }
+  return true;
+}
