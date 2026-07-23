@@ -436,10 +436,26 @@ window.addEventListener("mousemove", (e) => {
 });
 window.addEventListener("mouseup", () => { dragging = false; });
 $canvas.addEventListener("click", (e) => {
-  if (movedDuringDrag) return;               // it was a pan, not a click
+  if (movedDuringDrag) return;               // it was a pan/drag, not a click
   const id = roomAt(e.clientX, e.clientY);
+  if (pendingMode) {
+    if (id != null) resolvePendingMode(id);
+    return;                                   // consume the click either way
+  }
   if (id != null) { focusRoom(id); previewPath(id); }
 });
+function resolvePendingMode(targetId) {
+  const mode = pendingMode;
+  pendingMode = null;
+  if (mode.kind === "merge") {
+    if (targetId === mode.fromId) { panel.post("notify", { text: "Can't merge a room into itself." }); return; }
+    applyEdit(() => mergeRooms(map, mode.fromId, targetId));
+    panel.post("notify", { text: "Rooms merged." });
+  } else if (mode.kind === "addExit") {
+    applyEdit(() => addExit(map, mode.fromId, mode.dir, targetId));
+    panel.post("notify", { text: `Exit '${mode.dir}' added.` });
+  }
+}
 $canvas.addEventListener("dblclick", (e) => {
   const id = roomAt(e.clientX, e.clientY);
   if (id != null) startWalk(id);
@@ -451,6 +467,11 @@ $canvas.addEventListener("contextmenu", (e) => {
 });
 
 window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && pendingMode) {
+    pendingMode = null;
+    panel.post("notify", { text: "Cancelled." });
+    return;
+  }
   const mod = e.metaKey || e.ctrlKey;
   if (!mod) return;
   if (e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); doUndo(); }
