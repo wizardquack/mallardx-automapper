@@ -255,6 +255,8 @@ function inlineConfirm(message) {
 
 // ── Menu action dispatcher ────────────────────────────────────────────────────
 async function handleMenuAction(action, arg, roomId) {
+  if (pocketPreview) cancelPocket();
+  pendingMode = null;
   if (action === "rename") {
     const r = getRoom(map, roomId); if (!r) return;
     const name = await inlinePrompt("Rename room", r.name || "");
@@ -575,9 +577,16 @@ window.addEventListener("keydown", (e) => {
   }
   const mod = e.metaKey || e.ctrlKey;
   if (!mod) return;
-  if (e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); doUndo(); }
-  else if ((e.key.toLowerCase() === "z" && e.shiftKey) || e.key.toLowerCase() === "y") {
-    e.preventDefault(); doRedo();
+  if (e.key.toLowerCase() === "z" && !e.shiftKey) {
+    e.preventDefault();
+    if (pocketPreview) cancelPocket();
+    pendingMode = null;
+    doUndo();
+  } else if ((e.key.toLowerCase() === "z" && e.shiftKey) || e.key.toLowerCase() === "y") {
+    e.preventDefault();
+    if (pocketPreview) cancelPocket();
+    pendingMode = null;
+    doRedo();
   }
 });
 window.addEventListener("resize", redraw);
