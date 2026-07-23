@@ -24,3 +24,31 @@ export function deleteRoom(map, id) {
   if (map.currentId === id) map.currentId = null;
   return true;
 }
+
+export function mergeRooms(map, sourceId, targetId) {
+  if (sourceId === targetId) return false;
+  const src = map.rooms[sourceId];
+  const tgt = map.rooms[targetId];
+  if (!src || !tgt) return false;
+
+  // Union exits — target keeps any dir it already has.
+  for (const dir of Object.keys(src.exits)) {
+    if (!tgt.exits[dir]) tgt.exits[dir] = { to: src.exits[dir].to };
+  }
+  // Repoint inbound edges from source to target.
+  for (const id of Object.keys(map.rooms)) {
+    const ex = map.rooms[id].exits;
+    for (const dir of Object.keys(ex)) {
+      if (ex[dir].to === sourceId) ex[dir].to = targetId;
+    }
+  }
+  // Key migration: target keeps its key; adopt source key only if target has none.
+  if (src.key != null && map.keyIndex[src.key] === sourceId) delete map.keyIndex[src.key];
+  if (tgt.key == null && src.key != null) {
+    tgt.key = src.key;
+    map.keyIndex[src.key] = targetId;
+  }
+  delete map.rooms[sourceId];
+  if (map.currentId === sourceId) map.currentId = targetId;
+  return true;
+}

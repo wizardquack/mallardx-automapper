@@ -1,7 +1,7 @@
 // ui/edits.test.js
 import { describe, it, expect } from "vitest";
 import { createMap, addRoom, linkExit, setCurrent, getRoom } from "./graph.js";
-import { renameRoom, deleteRoom } from "./edits.js";
+import { renameRoom, deleteRoom, mergeRooms } from "./edits.js";
 
 describe("renameRoom", () => {
   it("renames an existing room and returns true", () => {
@@ -43,5 +43,61 @@ describe("deleteRoom", () => {
   it("returns false for a missing room", () => {
     const m = createMap();
     expect(deleteRoom(m, "999")).toBe(false);
+  });
+});
+
+describe("mergeRooms", () => {
+  it("unions exits with the target winning conflicts", () => {
+    const m = createMap();
+    const t = addRoom(m, { key: "t", name: "T" });
+    const s = addRoom(m, { key: "s", name: "S" });
+    const x = addRoom(m, { key: "x", name: "X" });
+    const y = addRoom(m, { key: "y", name: "Y" });
+    linkExit(m, t.id, "n", x.id);          // target has n
+    linkExit(m, s.id, "n", y.id);          // source also has n (target wins)
+    linkExit(m, s.id, "e", y.id);          // source-only e (adopted)
+    mergeRooms(m, s.id, t.id);
+    expect(m.rooms[t.id].exits["n"].to).toBe(x.id);
+    expect(m.rooms[t.id].exits["e"].to).toBe(y.id);
+    expect(m.rooms[s.id]).toBeUndefined();
+  });
+  it("repoints inbound exits from the source to the target", () => {
+    const m = createMap();
+    const t = addRoom(m, { key: "t", name: "T" });
+    const s = addRoom(m, { key: "s", name: "S" });
+    const a = addRoom(m, { key: "a", name: "A" });
+    linkExit(m, a.id, "w", s.id);          // a → source
+    mergeRooms(m, s.id, t.id);
+    expect(m.rooms[a.id].exits["w"].to).toBe(t.id);
+  });
+  it("keeps the target key and drops the source key when both are keyed", () => {
+    const m = createMap();
+    const t = addRoom(m, { key: "t", name: "T" });
+    const s = addRoom(m, { key: "s", name: "S" });
+    mergeRooms(m, s.id, t.id);
+    expect(m.keyIndex["t"]).toBe(t.id);
+    expect(m.keyIndex["s"]).toBeUndefined();
+  });
+  it("adopts the source key when the target has none", () => {
+    const m = createMap();
+    const t = addRoom(m, { key: null, name: "T" });
+    const s = addRoom(m, { key: "s", name: "S" });
+    mergeRooms(m, s.id, t.id);
+    expect(m.rooms[t.id].key).toBe("s");
+    expect(m.keyIndex["s"]).toBe(t.id);
+  });
+  it("moves current onto the target when the source was current", () => {
+    const m = createMap();
+    const t = addRoom(m, { key: "t", name: "T" });
+    const s = addRoom(m, { key: "s", name: "S" });
+    setCurrent(m, s.id);
+    mergeRooms(m, s.id, t.id);
+    expect(m.currentId).toBe(t.id);
+  });
+  it("returns false for a self-merge or a missing room", () => {
+    const m = createMap();
+    const t = addRoom(m, { key: "t", name: "T" });
+    expect(mergeRooms(m, t.id, t.id)).toBe(false);
+    expect(mergeRooms(m, "999", t.id)).toBe(false);
   });
 });
