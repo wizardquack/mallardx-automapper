@@ -12,6 +12,8 @@ license = "MIT"
 [permissions]
 # room.info drives zero-config mapping on Discworld/IRE-style MUDs.
 gmcp_access = ["room.info"]
+# Phase 2 speedwalk issues movement commands via mud.send.
+sends = true
 
 [gmcp]
 advertise = ["room.info"]
