@@ -414,6 +414,7 @@ $search.addEventListener("keydown", (e) => {
 
 // Canvas: pan (drag), single-click = select + center + preview, double-click = walk.
 let dragging = false, lastX = 0, lastY = 0, downX = 0, downY = 0, movedDuringDrag = false;
+let dragRoomId = null;   // non-null while dragging a room (vs panning)
 function roomAt(clientX, clientY) {
   const rect = $canvas.getBoundingClientRect();
   const x = clientX - rect.left, y = clientY - rect.top;
@@ -423,18 +424,62 @@ function roomAt(clientX, clientY) {
   }
   return null;
 }
+// Convert a client pixel to an integer area-grid cell, using the anchor and
+// scale the last layout was drawn with. Mirrors render.js computeLayout math.
+function cellFromClient(clientX, clientY, room) {
+  const anchor = anchorForArea(room.areaId);
+  if (!anchor) return null;
+  const rect = $canvas.getBoundingClientRect();
+  const scale = ZOOMS[zoomIdx];
+  const cx = $canvas.width / 2 + panX, cy = $canvas.height / 2 + panY;
+  const px = clientX - rect.left, py = clientY - rect.top;
+  const x = Math.round((px - cx) / scale) + anchor.coords.x;
+  const y = Math.round((py - cy) / scale) + anchor.coords.y;
+  return { x, y };
+}
+
+// The anchor render.js used: the focus anchor if in-area, else current, else
+// the area's lowest-id room.
+function anchorForArea(areaId) {
+  const cur = currentRoom(map);
+  if (focusAnchorId != null && map.rooms[focusAnchorId] && map.rooms[focusAnchorId].areaId === areaId) {
+    return map.rooms[focusAnchorId];
+  }
+  if (cur && cur.areaId === areaId) return cur;
+  const ids = Object.keys(map.rooms)
+    .filter((id) => map.rooms[id].areaId === areaId)
+    .sort((a, b) => Number(a) - Number(b));
+  return ids.length ? map.rooms[ids[0]] : null;
+}
 $canvas.addEventListener("mousedown", (e) => {
   dragging = true; movedDuringDrag = false;
   lastX = e.clientX; lastY = e.clientY; downX = e.clientX; downY = e.clientY;
+  dragRoomId = e.button === 0 ? roomAt(e.clientX, e.clientY) : null;
 });
 window.addEventListener("mousemove", (e) => {
   if (!dragging) return;
   if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 4) movedDuringDrag = true;
+  if (dragRoomId != null) return;   // room-drag commits on mouseup; no live pan
   panX += e.clientX - lastX; panY += e.clientY - lastY;
   lastX = e.clientX; lastY = e.clientY;
   redraw();
 });
-window.addEventListener("mouseup", () => { dragging = false; });
+window.addEventListener("mouseup", (e) => {
+  if (dragging && dragRoomId != null && movedDuringDrag) {
+    const r = getRoom(map, dragRoomId);
+    if (r) {
+      const cell = cellFromClient(e.clientX, e.clientY, r);
+      if (cell && (cell.x !== r.coords.x || cell.y !== r.coords.y)) {
+        if (isCellOccupied(map, r.areaId, cell.x, cell.y, r.coords.z, r.id)) {
+          panel.post("notify", { text: "That cell is already occupied." });
+        } else {
+          applyEdit(() => moveRoom(map, r.id, cell.x, cell.y));
+        }
+      }
+    }
+  }
+  dragging = false; dragRoomId = null;
+});
 $canvas.addEventListener("click", (e) => {
   if (movedDuringDrag) return;               // it was a pan/drag, not a click
   const id = roomAt(e.clientX, e.clientY);
