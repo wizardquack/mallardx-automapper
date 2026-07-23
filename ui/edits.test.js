@@ -1,7 +1,10 @@
 // ui/edits.test.js
 import { describe, it, expect } from "vitest";
 import { createMap, addRoom, linkExit, setCurrent, getRoom } from "./graph.js";
-import { renameRoom, deleteRoom, mergeRooms, addExit, deleteExit, setOneWay } from "./edits.js";
+import {
+  renameRoom, deleteRoom, mergeRooms, addExit, deleteExit, setOneWay,
+  isCellOccupied, freeCell, moveRoom,
+} from "./edits.js";
 
 describe("renameRoom", () => {
   it("renames an existing room and returns true", () => {
@@ -160,5 +163,35 @@ describe("setOneWay", () => {
     addExit(m, a.id, "e", b.id, { bidirectional: false });
     expect(setOneWay(m, a.id, "e", false)).toBe(true);
     expect(m.rooms[b.id].exits["w"].to).toBe(a.id);
+  });
+});
+
+describe("isCellOccupied / freeCell", () => {
+  it("detects an occupied cell and ignores the excepted room", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", name: "A", coords: { x: 2, y: 0, z: 0 }, areaId: "1" });
+    expect(isCellOccupied(m, "1", 2, 0, 0)).toBe(true);
+    expect(isCellOccupied(m, "1", 2, 0, 0, a.id)).toBe(false);
+    expect(isCellOccupied(m, "1", 3, 0, 0)).toBe(false);
+    expect(isCellOccupied(m, "2", 2, 0, 0)).toBe(false); // different area
+  });
+  it("finds the first free cell along +x on z:0", () => {
+    const m = createMap();
+    addRoom(m, { key: "a", name: "A", coords: { x: 0, y: 0, z: 0 }, areaId: "1" });
+    addRoom(m, { key: "b", name: "B", coords: { x: 1, y: 0, z: 0 }, areaId: "1" });
+    expect(freeCell(m, "1")).toEqual({ x: 2, y: 0, z: 0 });
+  });
+});
+
+describe("moveRoom", () => {
+  it("updates planar coords and leaves z unchanged", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", name: "A", coords: { x: 0, y: 0, z: 3 }, areaId: "1" });
+    expect(moveRoom(m, a.id, 5, -2)).toBe(true);
+    expect(m.rooms[a.id].coords).toEqual({ x: 5, y: -2, z: 3 });
+  });
+  it("returns false for a missing room", () => {
+    const m = createMap();
+    expect(moveRoom(m, "999", 1, 1)).toBe(false);
   });
 });

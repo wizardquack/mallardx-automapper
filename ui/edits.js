@@ -89,3 +89,27 @@ export function setOneWay(map, fromId, dir, oneWay) {
   }
   return true;
 }
+
+export function isCellOccupied(map, areaId, x, y, z, exceptId = null) {
+  for (const id of Object.keys(map.rooms)) {
+    if (id === exceptId) continue;
+    const r = map.rooms[id];
+    if (r.areaId === areaId && r.coords.x === x && r.coords.y === y && r.coords.z === z) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function freeCell(map, areaId) {
+  let x = 0;
+  while (isCellOccupied(map, areaId, x, 0, 0)) x++;
+  return { x, y: 0, z: 0 };
+}
+
+export function moveRoom(map, id, x, y) {
+  const r = map.rooms[id];
+  if (!r) return false;
+  r.coords = { x, y, z: r.coords.z };
+  return true;
+}
