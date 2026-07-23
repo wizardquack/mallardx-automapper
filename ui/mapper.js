@@ -501,7 +501,7 @@ function anchorForArea(areaId) {
 $canvas.addEventListener("mousedown", (e) => {
   dragging = true; movedDuringDrag = false;
   lastX = e.clientX; lastY = e.clientY; downX = e.clientX; downY = e.clientY;
-  dragRoomId = e.button === 0 ? roomAt(e.clientX, e.clientY) : null;
+  dragRoomId = (e.button === 0 && !pocketPreview) ? roomAt(e.clientX, e.clientY) : null;
 });
 window.addEventListener("mousemove", (e) => {
   if (!dragging) return;
