@@ -1,7 +1,7 @@
 // ui/edits.test.js
 import { describe, it, expect } from "vitest";
 import { createMap, addRoom, linkExit, setCurrent, getRoom } from "./graph.js";
-import { renameRoom, deleteRoom, mergeRooms } from "./edits.js";
+import { renameRoom, deleteRoom, mergeRooms, addExit, deleteExit, setOneWay } from "./edits.js";
 
 describe("renameRoom", () => {
   it("renames an existing room and returns true", () => {
@@ -99,5 +99,66 @@ describe("mergeRooms", () => {
     const t = addRoom(m, { key: "t", name: "T" });
     expect(mergeRooms(m, t.id, t.id)).toBe(false);
     expect(mergeRooms(m, "999", t.id)).toBe(false);
+  });
+});
+
+describe("addExit", () => {
+  it("adds a two-way exit by default", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", name: "A" });
+    const b = addRoom(m, { key: "b", name: "B" });
+    expect(addExit(m, a.id, "e", b.id)).toBe(true);
+    expect(m.rooms[a.id].exits["e"].to).toBe(b.id);
+    expect(m.rooms[b.id].exits["w"].to).toBe(a.id);
+  });
+  it("adds a one-way exit when bidirectional is false", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", name: "A" });
+    const b = addRoom(m, { key: "b", name: "B" });
+    addExit(m, a.id, "e", b.id, { bidirectional: false });
+    expect(m.rooms[a.id].exits["e"].to).toBe(b.id);
+    expect(m.rooms[b.id].exits["w"]).toBeUndefined();
+  });
+  it("returns false for a missing room", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", name: "A" });
+    expect(addExit(m, a.id, "e", "999")).toBe(false);
+  });
+});
+
+describe("deleteExit", () => {
+  it("removes only the named directional exit", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", name: "A" });
+    const b = addRoom(m, { key: "b", name: "B" });
+    addExit(m, a.id, "e", b.id);
+    expect(deleteExit(m, a.id, "e")).toBe(true);
+    expect(m.rooms[a.id].exits["e"]).toBeUndefined();
+    expect(m.rooms[b.id].exits["w"].to).toBe(a.id); // reverse untouched
+  });
+  it("returns false when the exit is absent", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", name: "A" });
+    expect(deleteExit(m, a.id, "e")).toBe(false);
+  });
+});
+
+describe("setOneWay", () => {
+  it("removes the reverse edge when making one-way", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", name: "A" });
+    const b = addRoom(m, { key: "b", name: "B" });
+    addExit(m, a.id, "e", b.id);
+    expect(setOneWay(m, a.id, "e", true)).toBe(true);
+    expect(m.rooms[b.id].exits["w"]).toBeUndefined();
+    expect(m.rooms[a.id].exits["e"].to).toBe(b.id);
+  });
+  it("restores the reverse edge when making two-way", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", name: "A" });
+    const b = addRoom(m, { key: "b", name: "B" });
+    addExit(m, a.id, "e", b.id, { bidirectional: false });
+    expect(setOneWay(m, a.id, "e", false)).toBe(true);
+    expect(m.rooms[b.id].exits["w"].to).toBe(a.id);
   });
 });

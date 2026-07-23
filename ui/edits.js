@@ -3,6 +3,8 @@
 // Mirrors graph.js / identity.js style. Every function returns a boolean
 // success flag so mapper's applyEdit() can skip no-ops.
 
+import { reverse } from "./directions.js";
+
 export function renameRoom(map, id, name) {
   const r = map.rooms[id];
   if (!r) return false;
@@ -50,5 +52,40 @@ export function mergeRooms(map, sourceId, targetId) {
   }
   delete map.rooms[sourceId];
   if (map.currentId === sourceId) map.currentId = targetId;
+  return true;
+}
+
+export function addExit(map, fromId, dir, toId, opts = {}) {
+  const from = map.rooms[fromId];
+  const to = map.rooms[toId];
+  if (!from || !to || !dir) return false;
+  const bidirectional = opts.bidirectional !== false; // default true
+  from.exits[dir] = { to: toId };
+  if (bidirectional) {
+    const back = reverse(dir);
+    if (back) to.exits[back] = { to: fromId };
+  }
+  return true;
+}
+
+export function deleteExit(map, fromId, dir) {
+  const from = map.rooms[fromId];
+  if (!from || !from.exits[dir]) return false;
+  delete from.exits[dir];
+  return true;
+}
+
+export function setOneWay(map, fromId, dir, oneWay) {
+  const from = map.rooms[fromId];
+  if (!from || !from.exits[dir]) return false;
+  const back = reverse(dir);
+  if (!back) return false;
+  const to = map.rooms[from.exits[dir].to];
+  if (!to) return false;
+  if (oneWay) {
+    if (to.exits[back] && to.exits[back].to === fromId) delete to.exits[back];
+  } else {
+    to.exits[back] = { to: fromId };
+  }
   return true;
 }
