@@ -57,3 +57,14 @@ body {
   background: #374151; color: #e5e7eb; cursor: pointer;
 }
 .edit-modal-row .edit-danger { background: #7f1d1d; border-color: #991b1b; }
+.pocket-bar {
+  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
+  display: flex; gap: 8px; align-items: center; z-index: 40;
+  background: #1f2430; color: #e5e7eb; border: 1px solid #f59e0b; border-radius: 6px;
+  padding: 6px 10px; font-size: 12px;
+}
+.pocket-bar button {
+  padding: 4px 10px; border-radius: 4px; border: 1px solid #374151;
+  background: #374151; color: #e5e7eb; cursor: pointer;
+}
+.pocket-bar .pocket-confirm { background: #b45309; border-color: #f59e0b; }

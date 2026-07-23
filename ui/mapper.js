@@ -42,6 +42,7 @@ let zoomIdx = 2;
 let panX = 0, panY = 0;
 let lastLayout = { rooms: [] };
 let lastRoomSize = 0;
+let pocketPreview = null;   // { ids:Set<string>, areaId:string } while previewing
 
 // ── Persistence (debounced) ────────────────────────────────────────────────
 let persistTimer = null;
@@ -125,6 +126,7 @@ function redraw() {
   draw(ctx, layout, { roomSize: lastRoomSize });
   const cur = currentRoom(map);
   $name.textContent = cur ? (cur.name || "(unnamed room)") : "Not mapping";
+  drawPocketOverlay();
 }
 
 // ── Walk controller ──────────────────────────────────────────────────────────
@@ -298,7 +300,52 @@ function openRoomMenu(clientX, clientY, roomId) {
   panel.menu.show({ x: clientX, y: clientY }, nodes);
 }
 
-async function doAreaMove(/* roomId, arg, pocket */) { /* implemented in Task 11 */ }
+async function resolveTargetArea(arg) {
+  if (arg !== "__new__") return arg;
+  const label = await inlinePrompt("New area name", "");
+  if (label == null) return null;
+  return addArea(map, { key: null, label }).id;
+}
+
+async function doAreaMove(roomId, arg, pocket) {
+  const areaId = await resolveTargetArea(arg);
+  if (areaId == null) return;
+  if (!pocket) {
+    applyEdit(() => moveToArea(map, roomId, areaId));
+    panel.post("notify", { text: "Room moved to area." });
+    return;
+  }
+  const ids = computePocket(map, roomId);
+  pocketPreview = { ids: new Set(ids), areaId };
+  showPocketBar();
+  redraw();
+}
+
+function drawPocketOverlay() {
+  if (!pocketPreview) return;
+  ctx.save();
+  ctx.strokeStyle = "#f59e0b"; ctx.lineWidth = 3;
+  const half = lastRoomSize / 2 + 3;
+  for (const r of lastLayout.rooms) {
+    if (pocketPreview.ids.has(r.id)) ctx.strokeRect(r.px - half, r.py - half, half * 2, half * 2);
+  }
+  ctx.restore();
+}
+
+const $pocketBar = document.querySelector(".pocket-bar");
+function showPocketBar() { $pocketBar.hidden = false; }
+function hidePocketBar() { $pocketBar.hidden = true; }
+function commitPocket() {
+  if (!pocketPreview) return;
+  const ids = Array.from(pocketPreview.ids);
+  const areaId = pocketPreview.areaId;
+  pocketPreview = null; hidePocketBar();
+  applyEdit(() => movePocket(map, ids, areaId));
+  panel.post("notify", { text: `Moved ${ids.length} room(s) to area.` });
+}
+function cancelPocket() { pocketPreview = null; hidePocketBar(); redraw(); }
+document.querySelector(".pocket-confirm").addEventListener("click", commitPocket);
+document.querySelector(".pocket-cancel").addEventListener("click", cancelPocket);
 
 // ── Host messages ────────────────────────────────────────────────────────────
 panel.on("load", (frame) => {
@@ -483,6 +530,14 @@ window.addEventListener("mouseup", (e) => {
 $canvas.addEventListener("click", (e) => {
   if (movedDuringDrag) return;               // it was a pan/drag, not a click
   const id = roomAt(e.clientX, e.clientY);
+  if (pocketPreview) {
+    if (id != null) {
+      if (pocketPreview.ids.has(id)) pocketPreview.ids.delete(id);
+      else pocketPreview.ids.add(id);
+      redraw();
+    }
+    return;
+  }
   if (pendingMode) {
     if (id != null) resolvePendingMode(id);
     return;                                   // consume the click either way
@@ -512,6 +567,7 @@ $canvas.addEventListener("contextmenu", (e) => {
 });
 
 window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && pocketPreview) { cancelPocket(); return; }
   if (e.key === "Escape" && pendingMode) {
     pendingMode = null;
     panel.post("notify", { text: "Cancelled." });
