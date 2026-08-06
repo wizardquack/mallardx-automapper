@@ -1,4 +1,9 @@
 * { box-sizing: border-box; }
+/* The `hidden` attribute must win over element rules that set `display`
+   (e.g. .learn-panel / .pocket-bar use `display:flex`). Without this, an
+   author `display` overrides the UA `[hidden]{display:none}` and toggling
+   `.hidden = true` in JS leaves the element visible. */
+[hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
 body {
   display: flex; flex-direction: column;
