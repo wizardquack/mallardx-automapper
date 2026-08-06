@@ -11,6 +11,7 @@ import { createHistory } from "./history.js";
 import { roomMenuModel } from "./editmenu.js";
 import { addArea } from "./graph.js";
 import { resolveRoomSeen } from "./identity.js";
+import { fingerprint, suggestNamePattern, suggestExitsPattern } from "./fingerprint.js";
 import { computeLayout, draw } from "./render.js";
 import { findPath } from "./pathfind.js";
 import { matchRooms, resolveDestination } from "./search.js";
@@ -349,6 +350,80 @@ function cancelPocket() { pocketPreview = null; hidePocketBar(); redraw(); }
 document.querySelector(".pocket-confirm").addEventListener("click", commitPocket);
 document.querySelector(".pocket-cancel").addEventListener("click", cancelPocket);
 
+// ── Learn mode (non-GMCP capture setup) ──────────────────────────────────────
+// The adapter streams every incoming line here while '/map learn' is on. The
+// user marks which line is the room name and which is the exits list; we infer
+// a regex for each (fingerprint.js) and show them to paste into settings.
+const $learnPanel = document.querySelector(".learn-panel");
+const $learnLines = document.querySelector(".learn-lines");
+const $learnOut = document.querySelector(".learn-out");
+const $learnTitle = document.querySelector(".learn-title");
+const LEARN_TITLE = "Learn mode — click Name / Exits on a room's lines";
+let learnActive = false;
+let learnLines = [];
+let nameSample = null;
+let exitsSample = null;
+const LEARN_MAX = 80;
+
+function setLearnActive(on) {
+  learnActive = !!on;
+  if (learnActive) { learnLines = []; nameSample = null; exitsSample = null; renderLearn(); }
+  $learnPanel.hidden = !learnActive;
+}
+function addLearnLine(text) {
+  learnLines.push(text);
+  if (learnLines.length > LEARN_MAX) learnLines.shift();
+  renderLearn();
+}
+function renderLearn() {
+  if ($learnTitle) {
+    $learnTitle.textContent = learnLines.length
+      ? `${LEARN_TITLE}  (${learnLines.length} lines)`
+      : LEARN_TITLE;
+  }
+  $learnLines.innerHTML = "";
+  if (learnLines.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "learn-empty";
+    empty.textContent = "Walk into a room — its output lines will appear here. "
+      + "Then click “Name” on the title line and “Exits” on the exits line.";
+    $learnLines.appendChild(empty);
+  }
+  for (const text of learnLines) {
+    const row = document.createElement("div");
+    row.className = "learn-line";
+    const span = document.createElement("span");
+    span.className = "learn-text";
+    span.textContent = text;
+    const nameBtn = document.createElement("button");
+    nameBtn.textContent = "Name";
+    if (text === nameSample) nameBtn.classList.add("chosen-name");
+    nameBtn.addEventListener("click", () => { nameSample = text; renderLearn(); updateLearnOut(); });
+    const exitsBtn = document.createElement("button");
+    exitsBtn.textContent = "Exits";
+    if (text === exitsSample) exitsBtn.classList.add("chosen-exits");
+    exitsBtn.addEventListener("click", () => { exitsSample = text; renderLearn(); updateLearnOut(); });
+    row.append(span, nameBtn, exitsBtn);
+    $learnLines.appendChild(row);
+  }
+  $learnLines.scrollTop = $learnLines.scrollHeight;
+}
+function updateLearnOut() {
+  if (nameSample == null || exitsSample == null) { $learnOut.hidden = true; return; }
+  $learnOut.querySelector(".learn-name-pat").textContent = suggestNamePattern(nameSample);
+  $learnOut.querySelector(".learn-exits-pat").textContent = suggestExitsPattern(exitsSample);
+  $learnOut.hidden = false;
+}
+function closeLearn() {
+  setLearnActive(false);
+  panel.post("learn_stop", {});
+}
+document.querySelector(".learn-close").addEventListener("click", closeLearn);
+panel.on("learn", (frame) => setLearnActive(frame && frame.on));
+panel.on("learn_line", (frame) => {
+  if (learnActive && frame && frame.text != null) addLearnLine(frame.text);
+});
+
 // ── Host messages ────────────────────────────────────────────────────────────
 panel.on("load", (frame) => {
   map = frame && frame.json ? fromJSON(frame.json) : createMap();
@@ -365,18 +440,16 @@ panel.on("moved", (frame) => {
   pendingDir = frame && frame.dir ? frame.dir : null;
 });
 
-panel.on("room_seen", (frame) => {
-  if (!frame || !frame.key || !loaded) return;
+// Shared ingest for a resolved "room seen" — from GMCP room.info (a `key`) or
+// non-GMCP capture (a fingerprint `fp`). Correlates with the pending movement
+// direction, mutates the graph, advances any active walk, and repaints.
+function ingestRoom(seen) {
+  if (!loaded) return;
   if (walk && walk.isActive()) {
     const d = walk.pendingDir();
     if (d != null) pendingDir = d;
   }
-  resolveRoomSeen(
-    map,
-    { key: frame.key, name: frame.name, env: frame.env, areaTag: frame.areaTag, areaField: frame.areaField },
-    pendingDir,
-    cfg,
-  );
+  resolveRoomSeen(map, seen, pendingDir, cfg);
   history.clear();
   pendingDir = null;
   if (walk && walk.isActive()) {
@@ -386,7 +459,23 @@ panel.on("room_seen", (frame) => {
   rebuildAreaSelect();
   redraw();
   schedulePersist();
+}
+
+panel.on("room_seen", (frame) => {
+  if (!frame || !frame.key) return;
+  ingestRoom({ key: frame.key, name: frame.name, env: frame.env, areaTag: frame.areaTag, areaField: frame.areaField });
 });
+
+// Non-GMCP: the adapter assembled a room's name + exits from output lines.
+// Fingerprint them into a synthetic identity and ingest exactly like GMCP.
+panel.on("capture", (frame) => {
+  if (!frame || !frame.name) return;
+  ingestRoom({ fp: fingerprint({ name: frame.name, exits: frame.exits }), name: frame.name, env: "" });
+});
+
+// Movement-failure guard: a blocked move produced no room change, so drop the
+// pending direction — otherwise the next reprint would forge a phantom link.
+panel.on("move_fail", () => { pendingDir = null; });
 
 panel.on("recenter", () => { focusCurrentArea(); redraw(); });
 
@@ -569,6 +658,7 @@ $canvas.addEventListener("contextmenu", (e) => {
 });
 
 window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && learnActive) { closeLearn(); return; }
   if (e.key === "Escape" && pocketPreview) { cancelPocket(); return; }
   if (e.key === "Escape" && pendingMode) {
     pendingMode = null;

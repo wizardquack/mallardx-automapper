@@ -124,3 +124,39 @@ describe("resolveRoomSeen", () => {
     expect(a.exits.n).toEqual({ to: b.id });
   });
 });
+
+describe("resolveRoomSeen — mudstd.room explicit exits", () => {
+  it("links the forward edge to an already-known room without walking it", () => {
+    const m = createMap();
+    resolveRoomSeen(m, { key: "B", name: "East Room" }, null);
+    const { room: a } = resolveRoomSeen(m, {
+      key: "A", name: "West Room",
+      exits: [{ dir: "e", toKey: "B" }],
+    }, null);
+    expect(a.exits.e).toEqual({ to: getRoomByKey(m, "B").id });
+    // We did NOT fabricate the reverse — B links back only when it reports it.
+    expect(getRoomByKey(m, "B").exits.w).toBeUndefined();
+  });
+
+  it("skips exits to unknown rooms (no stub, no crash) and links them later", () => {
+    const m = createMap();
+    const { room: a } = resolveRoomSeen(m, {
+      key: "A", name: "Room A",
+      exits: [{ dir: "e", toKey: "B" }],  // B unknown yet
+    }, null);
+    expect(a.exits.e).toBeUndefined();
+    expect(Object.keys(m.rooms).length).toBe(1);
+    const { room: b } = resolveRoomSeen(m, {
+      key: "B", name: "Room B",
+      exits: [{ dir: "w", toKey: "A" }],
+    }, "e");
+    expect(b.exits.w).toEqual({ to: a.id });
+  });
+
+  it("is idempotent and tolerates a missing exits field", () => {
+    const m = createMap();
+    resolveRoomSeen(m, { key: "A", name: "A" }, null);           // no exits field
+    const r = resolveRoomSeen(m, { key: "A", name: "A", exits: [{ dir: "e", toKey: "A" }] }, null);
+    expect(r.created).toBe(false);
+  });
+});

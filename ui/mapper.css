@@ -68,3 +68,38 @@ body {
   background: #374151; color: #e5e7eb; cursor: pointer;
 }
 .pocket-bar .pocket-confirm { background: #b45309; border-color: #f59e0b; }
+
+/* ── Learn mode overlay ─────────────────────────────────────────────────── */
+.learn-panel {
+  position: absolute; inset: 8px; z-index: 45; display: flex; flex-direction: column;
+  background: #0f1622; border: 1px solid #38bdf8; border-radius: 8px;
+  padding: 8px; font-size: 12px; overflow: hidden;
+}
+.learn-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.learn-title { font-weight: 600; flex: 1; }
+.learn-close {
+  width: 22px; height: 22px; border: 1px solid #374151; border-radius: 5px;
+  background: #111827; color: #e5e7eb; cursor: pointer;
+}
+.learn-lines { flex: 1; overflow: auto; border: 1px solid #1f2937; border-radius: 6px; }
+.learn-line {
+  display: flex; align-items: center; gap: 6px; padding: 3px 6px;
+  border-bottom: 1px solid #131a26; font-family: ui-monospace, monospace;
+}
+.learn-line:hover { background: #131a26; }
+.learn-text { flex: 1; white-space: pre-wrap; word-break: break-word; }
+.learn-line button {
+  border: 1px solid #374151; border-radius: 4px; background: #1f2937; color: #cbd5e1;
+  cursor: pointer; padding: 1px 7px; font-size: 11px;
+}
+.learn-line button.chosen-name { background: #166534; border-color: #22c55e; color: #dcfce7; }
+.learn-line button.chosen-exits { background: #1e40af; border-color: #3b82f6; color: #dbeafe; }
+.learn-out { margin-top: 6px; }
+.learn-field { display: flex; align-items: baseline; gap: 6px; margin-bottom: 3px; }
+.learn-label { color: #94a3b8; min-width: 120px; }
+.learn-field code {
+  flex: 1; background: #111827; border: 1px solid #374151; border-radius: 4px;
+  padding: 2px 6px; user-select: all; word-break: break-all;
+}
+.learn-hint { color: #94a3b8; margin: 4px 0 0; }
+.learn-empty { color: #6b7280; padding: 10px; text-align: center; }

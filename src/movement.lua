@@ -23,4 +23,24 @@ function M.normalize(cmd)
   return ALIASES[trimmed]
 end
 
+-- Normalize a GMCP exits table (mudstd.room: { DIR = { id = "..", inverse = ".." } })
+-- into a deterministic list of { dir = <canonical>, toKey = <target id string> }.
+-- Only exits whose direction maps to one of the 10 canonical dirs (so it has a
+-- known vector/reverse) and that carry a target id are kept; special exits like
+-- IN/OUT and custom strings are dropped (no geometry). Sorted by dir for a
+-- stable order (Lua `pairs` iteration order is undefined).
+function M.exits(exits)
+  local out = {}
+  if type(exits) ~= "table" then return out end
+  for dir, ex in pairs(exits) do
+    local canon = M.normalize(dir)
+    local to_key = type(ex) == "table" and ex.id or nil
+    if canon and to_key ~= nil then
+      out[#out + 1] = { dir = canon, toKey = tostring(to_key) }
+    end
+  end
+  table.sort(out, function(a, b) return a.dir < b.dir end)
+  return out
+end
+
 return M

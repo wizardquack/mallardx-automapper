@@ -5,9 +5,11 @@
 
 local movement = require("movement")
 local sendguard = require("sendguard")
+local capture = require("capture")
 
 local panel = mud.panel("map")
 local last_room = nil  -- replayed to the iframe on (re)mount
+local learn_handle = nil  -- catch-all trigger handle while '/map learn' is on
 
 -- Pick a generic area signal from room.info: prefer a real zone name, fall
 -- back to a coarse boundary flag. The engine (ui/area.js) decides semantics
@@ -20,19 +22,41 @@ local function area_signal(data)
   return nil, nil
 end
 
--- room.info → normalized room_seen. `identifier` is the stable room key.
-gmcp.on("room.info", function(_pkg, data)
-  if type(data) ~= "table" then return end
+-- Normalize a GMCP room payload into the engine's room_seen shape. Handles both
+-- the generic `room.info` package (Discworld/IRE — `identifier`, exits derived
+-- from movement) and the mudstandards `mudstd.room.info` package (string `id`,
+-- explicit `exits` map of { DIR = { id, inverse } }). `with_exits` forwards the
+-- explicit exits so the engine can close loops without walking every edge.
+local function normalize_room(data, with_exits)
+  if type(data) ~= "table" then return nil end
   local key = data.identifier or data.id or data.num or data.vnum
-  if key == nil then return end
+  if key == nil then return nil end
   local area_field, area_tag = area_signal(data)
-  last_room = {
+  local room = {
     key = tostring(key),
     name = data.name or "",
     env = tostring(data.terrain or data.environment or ""),
     areaField = area_field,
     areaTag = area_tag,
   }
+  if with_exits then room.exits = movement.exits(data.exits) end
+  return room
+end
+
+-- room.info → normalized room_seen. `identifier` is the stable room key.
+gmcp.on("room.info", function(_pkg, data)
+  local room = normalize_room(data, false)
+  if not room then return end
+  last_room = room
+  panel:post("room_seen", last_room)
+end)
+
+-- mudstd.room.info (mudstandards.org/gmcp/mudstandards_room) → same room_seen,
+-- plus its explicit exits (each carries the target room's id) for direct linking.
+gmcp.on("mudstd.room.info", function(_pkg, data)
+  local room = normalize_room(data, true)
+  if not room then return end
+  last_room = room
   panel:post("room_seen", last_room)
 end)
 
@@ -46,6 +70,78 @@ mud.on_send(function(m)
   if dir then panel:post("moved", { dir = dir }) end
   panel:post("user_input", {})
 end)
+
+-- ── Non-GMCP capture (Phase 4) ──────────────────────────────────────────────
+-- On MUDs without room.info GMCP, recognize the room-name and exits lines from
+-- user-configured regexes and assemble them (src/capture.lua) into a synthetic
+-- "room seen". The engine then fingerprints name+exits and places by movement
+-- vector, exactly as it does for a GMCP key. Off by default (empty patterns /
+-- capture_enabled=false) so GMCP worlds pay nothing.
+--
+-- Each pattern MUST contain exactly one capture group — its first group is the
+-- room name or exits text. The host hands the callback ONLY the user capture
+-- groups (the whole-line match is dropped), so the first group is m[1]; we read
+-- it via m:raw(1) to get the raw string without numeric coercion.
+local function nonempty(s)
+  return type(s) == "string" and s:gsub("%s+", "") ~= "" and s or nil
+end
+
+local function register_capture_triggers()
+  if settings.get("capture_enabled") ~= true then return end
+  local name_pat = nonempty(settings.get("capture_room_name"))
+  local exits_pat = nonempty(settings.get("capture_exits"))
+  local fail_pat = nonempty(settings.get("capture_fail"))
+
+  if name_pat then
+    mud.trigger(name_pat, function(m) capture.on_name(m:raw(1)) end)
+  end
+  if exits_pat then
+    mud.trigger(exits_pat, function(m)
+      local cap = capture.on_exits(m:raw(1))
+      if cap then
+        panel:post("capture", { name = cap.name, exits = cap.exits })
+      end
+    end)
+  end
+  if fail_pat then
+    mud.trigger(fail_pat, function()
+      capture.reset()
+      panel:post("move_fail", {})
+    end)
+  end
+end
+register_capture_triggers()
+
+-- Learn mode: stream every incoming line to the panel so the user can click the
+-- room-name and exits lines and have the panel infer the two regexes. A single
+-- catch-all trigger, registered on demand and removed when learning stops, so a
+-- non-learning session carries no per-line cost.
+local function stop_learn()
+  if not learn_handle then return false end
+  learn_handle:remove()
+  learn_handle = nil
+  panel:post("learn", { on = false })
+  return true
+end
+
+local function toggle_learn()
+  if stop_learn() then
+    mud.note("automapper: learn mode off.")
+    return
+  end
+  learn_handle = mud.trigger("^(.*)$", function(m)
+    local text = m:raw(1)
+    if text and text:gsub("%s", "") ~= "" then
+      panel:post("learn_line", { text = text })
+    end
+  end)
+  panel:post("learn", { on = true })
+  mud.note("automapper: learn mode ON. Walk into a room, then in the Map panel "
+    .. "click its name line and its exits line. '/map learn' again to stop.")
+end
+
+-- The panel's learn-overlay close button stops learning host-side too.
+panel:on_message("learn_stop", function() stop_learn() end)
 
 -- Resolver config from settings, forwarded to the engine on load.
 local function area_cfg()
@@ -71,6 +167,7 @@ end
 panel:on_message("ready", function()
   local json = storage.get("map")
   sendguard.reset()
+  capture.reset()
   panel:post("load", {
     json = type(json) == "string" and json or nil,
     cfg = area_cfg(),
@@ -125,17 +222,20 @@ mud.command("map", function(m)
     panel:post("request_stop", {})
   elseif args:sub(1, 5) == "path " then
     panel:post("request_path", { target = (args:sub(6):gsub("^%s+", "")) })
+  elseif args == "learn" then
+    toggle_learn()
   elseif args == "reset" then
     mud.note("automapper: this erases the saved map for THIS world. "
       .. "Type '/map reset confirm' to proceed.")
   elseif args == "reset confirm" then
     storage.delete("map")
     sendguard.reset()
+    capture.reset()
     panel:post("load", { json = nil, cfg = area_cfg(), walk = walk_cfg() })
     if last_room then panel:post("room_seen", last_room) end
     mud.note("automapper: map reset for this world. Re-walk to rebuild it.")
   else
     mud.note("automapper: unknown '/map " .. args .. "'. "
-      .. "Try /map, /map path <name>, /map stop, or /map reset.")
+      .. "Try /map, /map path <name>, /map stop, /map learn, or /map reset.")
   end
 end)

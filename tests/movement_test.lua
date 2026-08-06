@@ -23,5 +23,20 @@ check("uppercase + spaces", movement.normalize("  NorthEast  "), "ne")
 check("non-movement", movement.normalize("look"), nil)
 check("empty", movement.normalize(""), nil)
 
+-- M.exits: normalize a mudstd.room exits table.
+local ex = movement.exits({
+  N = { id = "1/1/13", inverse = "S" },
+  E = { id = "1/1/14" },
+  IN = { id = "1/1/99" },        -- non-canonical → dropped
+  U = { id = "1/1/20" },
+})
+check("exits count (IN dropped)", #ex, 3)
+check("exits sorted first dir", ex[1].dir, "e")   -- e, n, u sorted
+check("exits first toKey", ex[1].toKey, "1/1/14")
+check("exits second dir", ex[2].dir, "n")
+check("exits third dir", ex[3].dir, "u")
+check("exits drops missing id", #movement.exits({ W = { inverse = "E" } }), 0)
+check("exits non-table", #movement.exits(nil), 0)
+
 if failures > 0 then os.exit(1) end
 io.write("\nall movement tests passed\n")

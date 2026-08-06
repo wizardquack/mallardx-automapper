@@ -1,7 +1,7 @@
 id = "net.mallard.automapper"
 name = "Automapper"
-version = "0.3.0"
-description = "Universal GMCP-first automapper: builds a live map as you walk."
+version = "0.4.0"
+description = "Universal automapper: builds a live map as you walk — GMCP room.info / mudstd.room, or name+exits capture on MUDs without GMCP."
 language = "lua"
 entry = "src/main.lua"
 mallard_api_version = "1.0"
@@ -10,13 +10,20 @@ authors = ["Wizard Quack"]
 license = "MIT"
 
 [permissions]
-# room.info drives zero-config mapping on Discworld/IRE-style MUDs.
-gmcp_access = ["room.info"]
+# room.info drives zero-config mapping on Discworld/IRE-style MUDs;
+# mudstd.room.info is the mudstandards.org room package (string ids + explicit
+# exits). Glob-matched, so "mudstd.room.info" grants exactly that message.
+gmcp_access = ["room.info", "mudstd.room.info"]
 # Phase 2 speedwalk issues movement commands via mud.send.
 sends = true
 
 [gmcp]
-advertise = ["room.info"]
+# Core.Supports.Set tokens MUST carry a version suffix ("Package N"); strict
+# servers (e.g. eden-test.rpgframework.de) silently stop the login flow when
+# they receive a versionless token. The advertised token is the PACKAGE name
+# (mudstd.room), while gmcp.on subscribes to its message (mudstd.room.info) —
+# advertise format and subscription prefix are separate.
+advertise = ["room.info 1", "mudstd.room 1"]
 
 [panels.map]
 title        = "Map"
@@ -79,3 +86,32 @@ type = "bool"
 default = true
 label = "Typed input cancels speedwalk"
 description = "When on, typing any command while a speedwalk is running cancels it. '/map stop' always cancels regardless."
+
+# ── Non-GMCP capture (Phase 4) ────────────────────────────────────────────────
+# For MUDs that do NOT emit room.info GMCP. The engine fingerprints each room
+# from its name + exits and places it by movement vector. Leave OFF on GMCP
+# worlds (Discworld/IRE) — it is not needed there. Use '/map learn' to generate
+# the two regexes below by clicking the room-name and exits lines.
+[settings.capture_enabled]
+type = "bool"
+default = false
+label = "Non-GMCP capture"
+description = "Map MUDs that don't send room.info GMCP, by matching room text with the regexes below. Requires a plugin reload to take effect."
+
+[settings.capture_room_name]
+type = "string"
+default = ""
+label = "Room-name pattern (regex)"
+description = "Regex matching the room-title line, with ONE capture group for the name (e.g. '^\\[ (.+?) \\]$'). Set it via '/map learn'. Empty = capture off."
+
+[settings.capture_exits]
+type = "string"
+default = "^Obvious exits: (.+)"
+label = "Exits pattern (regex)"
+description = "Regex matching the exits line, with ONE capture group for the exits list (e.g. '^Obvious exits: (.+)'). The default fits many Diku/LP MUDs."
+
+[settings.capture_fail]
+type = "string"
+default = ""
+label = "Movement-failure pattern (regex)"
+description = "Optional regex matching a blocked-move message (e.g. '^You can''t go that way'). When it fires, the pending step is cancelled so no phantom room is created."

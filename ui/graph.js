@@ -17,11 +17,14 @@ export function createMap() {
   };
 }
 
-export function addRoom(map, { key, name, env, coords, areaId }) {
+export function addRoom(map, { key, fp, name, env, coords, areaId }) {
   const id = String(map.nextId++);
   const room = {
     id,
-    key,
+    key: key ?? null,
+    // Non-GMCP fingerprint (see fingerprint.js). Non-unique, so it is NOT
+    // indexed — fingerprint identity resolves by position, not key lookup.
+    fp: fp ?? null,
     name: name || "",
     env: env || "",
     coords: coords ? { ...coords } : { x: 0, y: 0, z: 0 },

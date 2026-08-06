@@ -27,6 +27,18 @@
       <button class="pocket-confirm">Move</button>
       <button class="pocket-cancel">Cancel</button>
     </div>
+    <div class="learn-panel" hidden>
+      <div class="learn-head">
+        <span class="learn-title">Learn mode — mark the room’s name &amp; exits lines</span>
+        <button class="learn-close" type="button" title="Close">✕</button>
+      </div>
+      <div class="learn-lines"></div>
+      <div class="learn-out" hidden>
+        <div class="learn-field"><span class="learn-label">Room-name pattern</span><code class="learn-name-pat"></code></div>
+        <div class="learn-field"><span class="learn-label">Exits pattern</span><code class="learn-exits-pat"></code></div>
+        <p class="learn-hint">Copy these into <b>Settings → Automapper</b> (Room-name / Exits pattern), turn on <b>Non-GMCP capture</b>, then reload the plugin.</p>
+      </div>
+    </div>
   </div>
   <script type="module" src="mapper.js"></script>
 </body>
