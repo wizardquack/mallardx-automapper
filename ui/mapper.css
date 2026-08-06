@@ -5,106 +5,126 @@
    `.hidden = true` in JS leaves the element visible. */
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
+
+/* Mallard injects the active theme onto this iframe's :root as CSS variables
+   (--bg, --fg, --border, --accent, …) and re-pushes them + fires
+   `mallard:themechange` when the user switches themes. We consume those tokens
+   everywhere, keeping the original dark palette as fallbacks so the plugin
+   still looks right if opened outside the host. The canvas is painted in JS
+   and reads the same tokens via getComputedStyle (see render.js / mapper.js). */
 body {
   display: flex; flex-direction: column;
   font: 13px system-ui, sans-serif;
-  background: #0b0e14; color: #e5e7eb;
+  background: var(--bg, #0b0e14); color: var(--fg, #e5e7eb);
 }
 .map-header {
   display: flex; align-items: center; gap: 6px;
-  padding: 6px 8px; border-bottom: 1px solid #1f2937;
+  padding: 6px 8px; border-bottom: 1px solid var(--border, #1f2937);
 }
 .room-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .spacer { flex: 1; }
 .map-header button {
-  width: 26px; height: 26px; border: 1px solid #374151;
-  background: #111827; color: #e5e7eb; border-radius: 6px; cursor: pointer;
+  width: 26px; height: 26px; border: 1px solid var(--border, #374151);
+  background: var(--bg-elevated, #111827); color: var(--fg, #e5e7eb);
+  border-radius: 6px; cursor: pointer;
 }
-.map-header button:hover { background: #1f2937; }
+.map-header button:hover { background: var(--border, #1f2937); }
 .canvas-wrap { flex: 1; position: relative; overflow: hidden; }
 .map-canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; }
 .map-canvas:active { cursor: grabbing; }
 .area-select {
   max-width: 42%;
-  background: #111827; color: #e5e7eb;
-  border: 1px solid #374151; border-radius: 6px;
+  background: var(--bg-elevated, #111827); color: var(--fg, #e5e7eb);
+  border: 1px solid var(--border, #374151); border-radius: 6px;
   padding: 3px 4px; font: inherit;
 }
 .search-bar { position: relative; padding: 0 8px 6px; }
 .search-box {
-  width: 100%; background: #111827; color: #e5e7eb;
-  border: 1px solid #374151; border-radius: 6px; padding: 4px 6px; font: inherit;
+  width: 100%; background: var(--bg-elevated, #111827); color: var(--fg, #e5e7eb);
+  border: 1px solid var(--border, #374151); border-radius: 6px; padding: 4px 6px; font: inherit;
 }
 .search-results {
   position: absolute; left: 8px; right: 8px; top: 100%; z-index: 5;
   max-height: 40vh; overflow: auto;
-  background: #0f1622; border: 1px solid #374151; border-radius: 6px;
+  background: var(--bg-elevated, #0f1622); border: 1px solid var(--border, #374151); border-radius: 6px;
 }
 .search-result { padding: 4px 8px; cursor: pointer; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
-.search-result:hover { background: #1f2937; }
+.search-result:hover { background: var(--border, #1f2937); }
 .edit-modal-back {
   position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
   background: rgba(0, 0, 0, 0.45); z-index: 50;
 }
 .edit-modal {
-  background: #1f2430; color: #e5e7eb; border: 1px solid #374151; border-radius: 6px;
+  background: var(--bg-elevated, #1f2430); color: var(--fg, #e5e7eb);
+  border: 1px solid var(--border, #374151); border-radius: 6px;
   padding: 14px; min-width: 220px; font-size: 13px;
 }
 .edit-modal-title { margin-bottom: 10px; }
 .edit-modal-input {
   width: 100%; box-sizing: border-box; padding: 6px 8px; margin-bottom: 10px;
-  background: #111827; color: #e5e7eb; border: 1px solid #374151; border-radius: 4px;
+  background: var(--bg, #111827); color: var(--fg, #e5e7eb);
+  border: 1px solid var(--border, #374151); border-radius: 4px;
 }
 .edit-modal-row { display: flex; justify-content: flex-end; gap: 8px; }
 .edit-modal-row button {
-  padding: 5px 12px; border-radius: 4px; border: 1px solid #374151;
-  background: #374151; color: #e5e7eb; cursor: pointer;
+  padding: 5px 12px; border-radius: 4px; border: 1px solid var(--border, #374151);
+  background: var(--border, #374151); color: var(--fg, #e5e7eb); cursor: pointer;
 }
-.edit-modal-row .edit-danger { background: #7f1d1d; border-color: #991b1b; }
+.edit-modal-row .edit-danger {
+  background: var(--danger, #7f1d1d);
+  border-color: var(--danger, #991b1b);
+  color: var(--accent-fg, #fee2e2);
+}
 .pocket-bar {
   position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
   display: flex; gap: 8px; align-items: center; z-index: 40;
-  background: #1f2430; color: #e5e7eb; border: 1px solid #f59e0b; border-radius: 6px;
+  background: var(--bg-elevated, #1f2430); color: var(--fg, #e5e7eb);
+  border: 1px solid #f59e0b; border-radius: 6px;
   padding: 6px 10px; font-size: 12px;
 }
 .pocket-bar button {
-  padding: 4px 10px; border-radius: 4px; border: 1px solid #374151;
-  background: #374151; color: #e5e7eb; cursor: pointer;
+  padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border, #374151);
+  background: var(--border, #374151); color: var(--fg, #e5e7eb); cursor: pointer;
 }
-.pocket-bar .pocket-confirm { background: #b45309; border-color: #f59e0b; }
+.pocket-bar .pocket-confirm { background: #b45309; border-color: #f59e0b; color: #fff8ec; }
 
 /* ── Learn mode overlay ─────────────────────────────────────────────────── */
 .learn-panel {
   position: absolute; inset: 8px; z-index: 45; display: flex; flex-direction: column;
-  background: #0f1622; border: 1px solid #38bdf8; border-radius: 8px;
+  background: var(--bg-elevated, #0f1622); border: 1px solid var(--accent, #38bdf8);
+  border-radius: 8px;
   padding: 8px; font-size: 12px; overflow: hidden;
 }
 .learn-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .learn-title { font-weight: 600; flex: 1; }
 .learn-close {
-  width: 22px; height: 22px; border: 1px solid #374151; border-radius: 5px;
-  background: #111827; color: #e5e7eb; cursor: pointer;
+  width: 22px; height: 22px; border: 1px solid var(--border, #374151); border-radius: 5px;
+  background: var(--bg, #111827); color: var(--fg, #e5e7eb); cursor: pointer;
 }
-.learn-lines { flex: 1; overflow: auto; border: 1px solid #1f2937; border-radius: 6px; }
+.learn-lines { flex: 1; overflow: auto; border: 1px solid var(--border, #1f2937); border-radius: 6px; }
 .learn-line {
   display: flex; align-items: center; gap: 6px; padding: 3px 6px;
-  border-bottom: 1px solid #131a26; font-family: ui-monospace, monospace;
+  border-bottom: 1px solid var(--border-muted, #131a26); font-family: ui-monospace, monospace;
 }
-.learn-line:hover { background: #131a26; }
+.learn-line:hover { background: var(--border-muted, #131a26); }
 .learn-text { flex: 1; white-space: pre-wrap; word-break: break-word; }
 .learn-line button {
-  border: 1px solid #374151; border-radius: 4px; background: #1f2937; color: #cbd5e1;
+  border: 1px solid var(--border, #374151); border-radius: 4px;
+  background: var(--border, #1f2937); color: var(--fg-muted, #cbd5e1);
   cursor: pointer; padding: 1px 7px; font-size: 11px;
 }
+/* Chosen-name (green) / chosen-exits (blue) stay semantically distinct so the
+   two marked lines read at a glance regardless of the host accent colour. */
 .learn-line button.chosen-name { background: #166534; border-color: #22c55e; color: #dcfce7; }
 .learn-line button.chosen-exits { background: #1e40af; border-color: #3b82f6; color: #dbeafe; }
 .learn-out { margin-top: 6px; }
 .learn-field { display: flex; align-items: baseline; gap: 6px; margin-bottom: 3px; }
-.learn-label { color: #94a3b8; min-width: 120px; }
+.learn-label { color: var(--fg-muted, #94a3b8); min-width: 120px; }
 .learn-field code {
-  flex: 1; background: #111827; border: 1px solid #374151; border-radius: 4px;
+  flex: 1; background: var(--bg, #111827); border: 1px solid var(--border, #374151);
+  border-radius: 4px;
   padding: 2px 6px; user-select: all; word-break: break-all;
 }
-.learn-hint { color: #94a3b8; margin: 4px 0 0; }
-.learn-empty { color: #6b7280; padding: 10px; text-align: center; }
+.learn-hint { color: var(--fg-muted, #94a3b8); margin: 4px 0 0; }
+.learn-empty { color: var(--fg-muted, #6b7280); padding: 10px; text-align: center; }

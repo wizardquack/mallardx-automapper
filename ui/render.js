@@ -77,22 +77,36 @@ export function envColor(env) {
   return "#" + [r, g, b].map((n) => n.toString(16).padStart(2, "0")).join("");
 }
 
-export function draw(ctx, layout, { roomSize }) {
+// Canvas colours can't reference CSS variables, so the host theme is threaded
+// in via `colors` (mapper.js reads the injected --accent/--border/… tokens with
+// getComputedStyle). Defaults mirror the original dark palette so tests and any
+// out-of-host use still paint correctly. `path`/`current` are deliberately kept
+// vivid (accent + a fixed amber "you are here") rather than tied to muted chrome.
+export const DEFAULT_COLORS = {
+  exit: "#6b7280",         // plain exit line  (→ --fg-muted)
+  exitPath: "#38bdf8",     // highlighted route line (→ --accent)
+  roomStroke: "#1f2937",   // plain room border (→ --border)
+  roomPath: "#38bdf8",     // room on the highlighted route (→ --accent)
+  current: "#facc15",      // the room you're standing in
+};
+
+export function draw(ctx, layout, { roomSize, colors }) {
+  const c = { ...DEFAULT_COLORS, ...(colors || {}) };
   const half = roomSize / 2;
   for (const e of layout.exits) {
     ctx.beginPath();
     ctx.moveTo(e.x1, e.y1);
     ctx.lineTo(e.x2, e.y2);
-    ctx.strokeStyle = e.onPath ? "#38bdf8" : "#6b7280";
+    ctx.strokeStyle = e.onPath ? c.exitPath : c.exit;
     ctx.lineWidth = e.onPath ? 4 : 2;
     ctx.stroke();
   }
   for (const r of layout.rooms) {
     ctx.fillStyle = envColor(r.env);
     ctx.fillRect(r.px - half, r.py - half, roomSize, roomSize);
-    if (r.isCurrent) { ctx.strokeStyle = "#facc15"; ctx.lineWidth = 3; }
-    else if (r.onPath) { ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 2; }
-    else { ctx.strokeStyle = "#1f2937"; ctx.lineWidth = 1; }
+    if (r.isCurrent) { ctx.strokeStyle = c.current; ctx.lineWidth = 3; }
+    else if (r.onPath) { ctx.strokeStyle = c.roomPath; ctx.lineWidth = 2; }
+    else { ctx.strokeStyle = c.roomStroke; ctx.lineWidth = 1; }
     ctx.strokeRect(r.px - half, r.py - half, roomSize, roomSize);
   }
 }

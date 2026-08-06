@@ -12,7 +12,7 @@ import { roomMenuModel } from "./editmenu.js";
 import { addArea } from "./graph.js";
 import { resolveRoomSeen } from "./identity.js";
 import { fingerprint, suggestNamePattern, suggestExitsPattern } from "./fingerprint.js";
-import { computeLayout, draw } from "./render.js";
+import { computeLayout, draw, DEFAULT_COLORS } from "./render.js";
 import { findPath } from "./pathfind.js";
 import { matchRooms, resolveDestination } from "./search.js";
 import { createWalk } from "./walk.js";
@@ -105,6 +105,21 @@ function focusCurrentArea() {
 }
 
 // ── Rendering ───────────────────────────────────────────────────────────────
+// Map the host theme tokens (injected by Mallard onto :root) to the canvas
+// palette. Falls back to render.js defaults when a token is absent (e.g. plugin
+// opened outside the host). Read fresh each redraw so theme switches take hold.
+function themeColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const v = (name, fb) => { const s = cs.getPropertyValue(name).trim(); return s || fb; };
+  return {
+    exit: v("--fg-muted", DEFAULT_COLORS.exit),
+    exitPath: v("--accent", DEFAULT_COLORS.exitPath),
+    roomStroke: v("--border", DEFAULT_COLORS.roomStroke),
+    roomPath: v("--accent", DEFAULT_COLORS.roomPath),
+    current: DEFAULT_COLORS.current,
+  };
+}
+
 function redraw() {
   if (viewedAreaId != null && !listAreas(map).some((a) => a.id === viewedAreaId)) {
     focusCurrentArea();
@@ -124,7 +139,7 @@ function redraw() {
   });
   lastLayout = layout;
   lastRoomSize = Math.max(8, ZOOMS[zoomIdx] * 0.5);
-  draw(ctx, layout, { roomSize: lastRoomSize });
+  draw(ctx, layout, { roomSize: lastRoomSize, colors: themeColors() });
   const cur = currentRoom(map);
   $name.textContent = cur ? (cur.name || "(unnamed room)") : "Not mapping";
   drawPocketOverlay();
@@ -680,6 +695,10 @@ window.addEventListener("keydown", (e) => {
   }
 });
 window.addEventListener("resize", redraw);
+// Repaint the canvas when the host switches theme (CSS handles the DOM chrome
+// on its own; the canvas has to be told). Mallard re-pushes the theme vars
+// before firing this, so themeColors() reads the new palette.
+window.addEventListener("mallard:themechange", redraw);
 
 // ── Handshake ─────────────────────────────────────────────────────────────────
 panel.post("ready", {});
