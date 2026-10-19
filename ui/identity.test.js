@@ -179,3 +179,70 @@ describe("resolveRoomSeen — in/out", () => {
     expect(a.exits.in).toEqual({ to: b.id });
   });
 });
+
+describe("resolveRoomSeen — direction inferred from exits", () => {
+  it("places a NEW room by the previous room's exit that leads to it", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "Rim", exits: [{ dir: "e", toKey: "B" }, { dir: "w", toKey: "Z" }] }, null).room;
+    // No typed direction (a local word like "spinward", or a clicked link).
+    const { room: b, created } = resolveRoomSeen(m, { key: "B", name: "Rim 2", exits: [{ dir: "w", toKey: "A" }] }, null);
+    expect(created).toBe(true);
+    expect(b.coords).toEqual({ x: 1, y: 0, z: 0 });
+    expect(a.exits.e).toEqual({ to: b.id });
+    // The reverse comes from B's own reported exits, not a guess.
+    expect(b.exits.w).toEqual({ to: a.id });
+  });
+
+  it("links the forward edge only: no guessed reverse when the room doesn't report one", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "Top", exits: [{ dir: "d", toKey: "B" }] }, null).room;
+    const b = resolveRoomSeen(m, { key: "B", name: "Chute", exits: [] }, null).room;
+    expect(a.exits.d).toEqual({ to: b.id });
+    expect(b.exits).toEqual({});
+    expect(b.coords).toEqual({ x: 0, y: 0, z: -1 });
+  });
+
+  it("a typed direction still wins over the inferred one", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "A", exits: [{ dir: "e", toKey: "B" }] }, null).room;
+    const b = resolveRoomSeen(m, { key: "B", name: "B" }, "n").room;
+    expect(b.coords).toEqual({ x: 0, y: -1, z: 0 });
+    expect(a.exits.n).toEqual({ to: b.id });
+  });
+
+  it("infers onto an already-known room from stored edges (no exitKeys)", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "A" }, null).room;
+    const b = resolveRoomSeen(m, { key: "B", name: "B" }, "e").room;
+    resolveRoomSeen(m, { key: "A", name: "A" }, "w");
+    delete a.exitKeys;                       // e.g. a room.info-only world
+    resolveRoomSeen(m, { key: "B", name: "B" }, null);
+    expect(currentRoom(m)).toBe(b);
+    expect(a.exits.e).toEqual({ to: b.id });
+  });
+
+  it("prefers a compass exit over in/out when both lead to the room", () => {
+    const m = createMap();
+    resolveRoomSeen(m, { key: "A", name: "A", exits: [{ dir: "in", toKey: "B" }, { dir: "n", toKey: "B" }] }, null);
+    const b = resolveRoomSeen(m, { key: "B", name: "B" }, null).room;
+    expect(b.coords).toEqual({ x: 0, y: -1, z: 0 });
+  });
+
+  it("infers nothing for a teleport to a room no exit leads to", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "A", exits: [{ dir: "e", toKey: "B" }] }, null).room;
+    const c = resolveRoomSeen(m, { key: "C", name: "Far" }, null).room;
+    expect(a.exits).toEqual({});
+    expect(c.coords).toEqual({ x: 1, y: 0, z: 0 });   // first free cell
+  });
+
+  it("remembers the last reported exits by key, and keeps them across room.info frames", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "A", exits: [{ dir: "e", toKey: "B" }, { dir: "in", toKey: "S" }] }, null).room;
+    expect(a.exitKeys).toEqual({ e: "B", in: "S" });
+    resolveRoomSeen(m, { key: "A", name: "A" }, null);   // no exits list
+    expect(a.exitKeys).toEqual({ e: "B", in: "S" });
+    resolveRoomSeen(m, { key: "A", name: "A", exits: [{ dir: "w", toKey: "C" }] }, null);
+    expect(a.exitKeys).toEqual({ w: "C" });
+  });
+});

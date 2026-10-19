@@ -5,7 +5,7 @@
 import {
   addRoom, getRoomByKey, linkExit, setCurrent, currentRoom,
 } from "./graph.js";
-import { vector, reverse, isDirection, isCompass } from "./directions.js";
+import { vector, reverse, isDirection, isCompass, ALL_DIRECTIONS } from "./directions.js";
 import { resolveArea } from "./area.js";
 
 export function resolveRoomSeen(map, seen, pendingDir, cfg) {
@@ -17,12 +17,23 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
   const prev = currentRoom(map);
   const existing = getRoomByKey(map, seen.key);
 
+  // A typed (or speedwalk) direction wins. Without one — a local direction
+  // word, a clicked link, a multi-step `go` — the move's direction is the
+  // previous room's exit that leads here, if it reported one.
+  let dir = pendingDir;
+  let inferred = false;
+  if (!dir) {
+    dir = inferDirection(map, prev, seen.key);
+    inferred = dir != null;
+  }
+
   if (existing) {
     existing.name = seen.name || existing.name;
     existing.env = seen.env || existing.env;
     // Record the traversed edge even when the destination already exists —
     // backtracks and loop-closing hops are the only chance to capture it.
-    linkTraversal(map, prev, existing, pendingDir);
+    linkTraversal(map, prev, existing, dir, !inferred);
+    recordExitKeys(existing, seen.exits);
     linkKnownExits(map, existing, seen.exits);
     setCurrent(map, existing.id);
     return { room: existing, created: false };
@@ -30,8 +41,8 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
 
   const areaId = resolveArea(map, seen, prev, cfg || {});
   let coords;
-  if (prev && prev.areaId === areaId && pendingDir && isCompass(pendingDir)) {
-    const v = vector(pendingDir);
+  if (prev && prev.areaId === areaId && dir && isCompass(dir)) {
+    const v = vector(dir);
     coords = { x: prev.coords.x + v.dx, y: prev.coords.y + v.dy, z: prev.coords.z + v.dz };
   } else {
     // No same-area anchor (area crossing, first room, or a move with no
@@ -41,10 +52,47 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
   }
 
   const room = addRoom(map, { key: seen.key, name: seen.name, env: seen.env, coords, areaId });
-  linkTraversal(map, prev, room, pendingDir);
+  linkTraversal(map, prev, room, dir, !inferred);
+  recordExitKeys(room, seen.exits);
   linkKnownExits(map, room, seen.exits);
   setCurrent(map, room.id);
   return { room, created: true };
+}
+
+// Which of prev's exits leads to the room keyed `key`? First from the exits
+// prev last reported by target key (`exitKeys`, so it works for a room not
+// yet on the map — the main case), then from prev's stored edges. A compass
+// direction is preferred over in/out when both lead there, since it can place
+// the room. Null when prev is unknown, is the same room, or has no such exit.
+function inferDirection(map, prev, key) {
+  if (!prev || key == null || prev.key === key) return null;
+  const found = [];
+  const byKey = prev.exitKeys || {};
+  for (const d of Object.keys(byKey)) if (byKey[d] === key) found.push(d);
+  if (found.length === 0) {
+    const target = getRoomByKey(map, key);
+    if (target) {
+      for (const d of Object.keys(prev.exits)) {
+        if (prev.exits[d].to === target.id && isDirection(d)) found.push(d);
+      }
+    }
+  }
+  if (found.length === 0) return null;
+  found.sort((a, b) => ALL_DIRECTIONS.indexOf(a) - ALL_DIRECTIONS.indexOf(b));
+  return found[0];
+}
+
+// Remember the exits a room last reported, by target key, so a later move out
+// of it can be matched to the exit taken even when its target wasn't yet on
+// the map. Replaced wholesale on each report; frames without an exits list
+// (room.info) leave it alone.
+function recordExitKeys(room, exits) {
+  if (!Array.isArray(exits)) return;
+  const byDir = {};
+  for (const ex of exits) {
+    if (ex && isDirection(ex.dir) && ex.toKey != null) byDir[ex.dir] = String(ex.toKey);
+  }
+  room.exitKeys = byDir;
 }
 
 // mudstd.room.info reports each room's exits with the neighbour's target key.
@@ -149,11 +197,14 @@ function firstFreeCell(map, areaId) {
 // teleports (no dir), the first room (no prev), or a room re-reporting itself
 // (prev === room). Works
 // across areas — connectivity is recorded even when the two rooms render in
-// different area views.
-function linkTraversal(map, prev, room, pendingDir) {
+// different area views. `withReverse` false links only the forward edge: an
+// inferred move knows the exit taken, but not that it leads back, and the
+// room's own reported exits supply the real reverse.
+function linkTraversal(map, prev, room, pendingDir, withReverse = true) {
   if (!prev || prev.id === room.id) return;
   if (!pendingDir || !isDirection(pendingDir)) return;
   linkExit(map, prev.id, pendingDir, room.id);
+  if (!withReverse) return;
   const back = reverse(pendingDir);
   if (back) linkExit(map, room.id, back, prev.id);
 }
