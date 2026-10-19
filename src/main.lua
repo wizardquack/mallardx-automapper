@@ -7,13 +7,16 @@ local movement = require("movement")
 local sendguard = require("sendguard")
 local capture = require("capture")
 local roomframe = require("roomframe")
+local roomsource = require("roomsource")
 
 local panel = mud.panel("map")
 local last_room = nil  -- replayed to the iframe on (re)mount
 local learn_handle = nil  -- catch-all trigger handle while '/map learn' is on
 
 -- room.info → normalized room_seen. `identifier` is the stable room key.
+-- Ignored once the session has seen mudstd.room.info (src/roomsource.lua).
 gmcp.on("room.info", function(_pkg, data)
+  if not roomsource.accept("room.info") then return end
   local room = roomframe.normalize(data, false)
   if not room then return end
   last_room = room
@@ -25,9 +28,14 @@ end)
 gmcp.on("mudstd.room.info", function(_pkg, data)
   local room = roomframe.normalize(data, true)
   if not room then return end
+  roomsource.accept("mudstd.room.info")   -- only a usable frame flips the session
   last_room = room
   panel:post("room_seen", last_room)
 end)
+
+-- A new session may be a different server: forget that the last one sent
+-- mudstd.room.info. (Also fires on plugin reload; a fresh load starts clear.)
+world.on("connect", function() roomsource.reset() end)
 
 -- Every outbound command. Our own speedwalk sends are consumed by the guard
 -- (no moved / no user_input). Genuine user input posts `moved` (for placement)
