@@ -57,3 +57,13 @@ function resolveFallback(map, prev) {
   if (prev && prev.areaId != null) return prev.areaId;
   return ensureArea(map, "__default__", "Map");
 }
+
+// A revisit to a known room keeps its area (no reassignment), but a frame that
+// names the area still relabels it, so a fully mapped area follows a rename.
+// Only when the room is still in the area keyed by the frame's zone value: a
+// room the user moved to another area doesn't drag that area's label along.
+export function refreshAreaName(map, room, seen) {
+  if (!seen.areaName || seen.areaTag == null || room.areaId == null) return;
+  const area = getArea(map, room.areaId);
+  if (area && area.key === "zone:" + seen.areaTag) area.label = seen.areaName;
+}

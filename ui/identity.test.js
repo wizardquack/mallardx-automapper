@@ -299,3 +299,22 @@ describe("resolveRoomSeen — server coordinates", () => {
     expect(a.coords).toEqual({ x: 0, y: 0, z: 0 });
   });
 });
+
+describe("resolveRoomSeen — areaName on revisits", () => {
+  it("relabels a known room's area when a revisit carries a new areaName", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "A", areaTag: "ship-7", areaField: "area", areaName: "Brass Kettle" }, null).room;
+    resolveRoomSeen(m, { key: "A", name: "A", areaTag: "ship-7", areaField: "area", areaName: "Copper Kettle" }, null);
+    expect(getArea(m, a.areaId).label).toBe("Copper Kettle");
+  });
+
+  it("doesn't relabel an area the room was moved into by hand", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "A", areaTag: "x", areaField: "area" }, null).room;
+    const other = resolveRoomSeen(m, { key: "B", name: "B", areaTag: "y", areaField: "area" }, null).room;
+    a.areaId = other.areaId;   // moved to area y by an edit
+    resolveRoomSeen(m, { key: "A", name: "A", areaTag: "x", areaField: "area", areaName: "Ex" }, null);
+    expect(getArea(m, other.areaId).label).toBe("y");
+  });
+});
+

@@ -6,7 +6,7 @@ import {
   addRoom, getRoomByKey, linkExit, setCurrent, currentRoom,
 } from "./graph.js";
 import { vector, reverse, isDirection, isCompass, ALL_DIRECTIONS } from "./directions.js";
-import { resolveArea } from "./area.js";
+import { resolveArea, refreshAreaName } from "./area.js";
 
 export function resolveRoomSeen(map, seen, pendingDir, cfg) {
   // Non-GMCP worlds have no stable room id; they arrive with a fingerprint
@@ -30,6 +30,7 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
   if (existing) {
     existing.name = seen.name || existing.name;
     existing.env = seen.env || existing.env;
+    refreshAreaName(map, existing, seen);
     // Server coordinates win, even over where the room was placed before.
     if (seen.coords) placeAtServerCoords(map, existing, seen.coords);
     // Record the traversed edge even when the destination already exists —
