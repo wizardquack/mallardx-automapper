@@ -94,4 +94,17 @@ describe("resolveRoomSeen — fingerprint path", () => {
     expect(room.fp).toBeTruthy();
     expect(Object.keys(m.rooms).length).toBe(2);
   });
+
+  it("walking in through a known doorway again revisits, does not duplicate", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, fp("Street", "n in"), null, {}).room;
+    const shop = resolveRoomSeen(m, fp("Shop", "out"), "in", {}).room;
+    expect(a.exits.in).toEqual({ to: shop.id });
+    expect(shop.exits.out).toEqual({ to: a.id });
+    resolveRoomSeen(m, fp("Street", "n in"), "out", {});
+    const again = resolveRoomSeen(m, fp("Shop", "out"), "in", {});
+    expect(again.created).toBe(false);
+    expect(again.room.id).toBe(shop.id);
+    expect(Object.keys(m.rooms).length).toBe(2);
+  });
 });

@@ -160,3 +160,22 @@ describe("resolveRoomSeen — mudstd.room explicit exits", () => {
     expect(r.created).toBe(false);
   });
 });
+
+describe("resolveRoomSeen — in/out", () => {
+  it("links in/out both ways without placing by them", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "Corridor" }, null).room;
+    const b = resolveRoomSeen(m, { key: "B", name: "Cantina" }, "in").room;
+    expect(a.exits.in).toEqual({ to: b.id });
+    expect(b.exits.out).toEqual({ to: a.id });
+    // No vector: B takes the area's first free cell, not a neighbour of A.
+    expect(b.coords).toEqual({ x: 1, y: 0, z: 0 });
+  });
+
+  it("links mudstd IN/OUT exits to known rooms", () => {
+    const m = createMap();
+    const b = resolveRoomSeen(m, { key: "B", name: "Cantina" }, null).room;
+    const a = resolveRoomSeen(m, { key: "A", name: "Corridor", exits: [{ dir: "in", toKey: "B" }] }, null).room;
+    expect(a.exits.in).toEqual({ to: b.id });
+  });
+});

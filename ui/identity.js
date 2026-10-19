@@ -5,7 +5,7 @@
 import {
   addRoom, getRoomByKey, linkExit, setCurrent, currentRoom,
 } from "./graph.js";
-import { vector, reverse, isDirection } from "./directions.js";
+import { vector, reverse, isDirection, isCompass } from "./directions.js";
 import { resolveArea } from "./area.js";
 
 export function resolveRoomSeen(map, seen, pendingDir, cfg) {
@@ -30,12 +30,13 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
 
   const areaId = resolveArea(map, seen, prev, cfg || {});
   let coords;
-  if (prev && prev.areaId === areaId && pendingDir && isDirection(pendingDir)) {
+  if (prev && prev.areaId === areaId && pendingDir && isCompass(pendingDir)) {
     const v = vector(pendingDir);
     coords = { x: prev.coords.x + v.dx, y: prev.coords.y + v.dy, z: prev.coords.z + v.dz };
   } else {
-    // No same-area anchor (area crossing, first room, or non-directional):
-    // place at the target area's first free cell to avoid collisions.
+    // No same-area anchor (area crossing, first room, or a move with no
+    // vector — none, or in/out): place at the target area's first free cell
+    // to avoid collisions.
     coords = firstFreeCell(map, areaId);
   }
 
@@ -69,24 +70,25 @@ function resolveFingerprint(map, seen, pendingDir, cfg) {
   const prev = currentRoom(map);
   const fp = seen.fp;
   const areaId = resolveArea(map, seen, prev, cfg || {});
-  const sameArea = prev && prev.areaId === areaId && pendingDir && isDirection(pendingDir);
 
+  // (a) prev already records an exit this way — if the room there fingerprints
+  //     the same, we've simply walked a known edge. Any stored direction,
+  //     in/out included, so a doorway walked twice doesn't mint a twin.
+  if (prev && pendingDir && isDirection(pendingDir)) {
+    const exit = prev.exits[pendingDir];
+    const dest = exit && exit.to != null ? map.rooms[exit.to] : null;
+    if (dest && dest.fp === fp) {
+      refresh(dest, seen);
+      linkTraversal(map, prev, dest, pendingDir);
+      setCurrent(map, dest.id);
+      return { room: dest, created: false };
+    }
+  }
+
+  const sameArea = prev && prev.areaId === areaId && pendingDir && isCompass(pendingDir);
   if (sameArea) {
     const v = vector(pendingDir);
     const tx = prev.coords.x + v.dx, ty = prev.coords.y + v.dy, tz = prev.coords.z + v.dz;
-
-    // (a) prev already records an exit this way — if the room there fingerprints
-    //     the same, we've simply walked a known edge.
-    const exit = prev.exits[pendingDir];
-    if (exit && exit.to != null) {
-      const dest = map.rooms[exit.to];
-      if (dest && dest.fp === fp) {
-        refresh(dest, seen);
-        linkTraversal(map, prev, dest, pendingDir);
-        setCurrent(map, dest.id);
-        return { room: dest, created: false };
-      }
-    }
 
     // (b) a matching room already occupies the geometric target cell (loop
     //     closure reached from a different direction) — link to it, don't dup.
@@ -107,7 +109,8 @@ function resolveFingerprint(map, seen, pendingDir, cfg) {
     return { room, created: true };
   }
 
-  // First room / teleport / area-cross / non-directional: stand-alone placement.
+  // First room / teleport / area-cross / in-out / non-directional: stand-alone
+  // placement.
   const coords = firstFreeCell(map, areaId);
   const room = addRoom(map, { fp, name: seen.name, env: seen.env, coords, areaId });
   linkTraversal(map, prev, room, pendingDir);
@@ -142,8 +145,9 @@ function firstFreeCell(map, areaId) {
 }
 
 // Link prev —dir→ room (and the reverse) when we moved in a real direction
-// between two distinct rooms. Idempotent; a no-op for teleports (no dir), the
-// first room (no prev), or a room re-reporting itself (prev === room). Works
+// (compass or in/out) between two distinct rooms. Idempotent; a no-op for
+// teleports (no dir), the first room (no prev), or a room re-reporting itself
+// (prev === room). Works
 // across areas — connectivity is recorded even when the two rooms render in
 // different area views.
 function linkTraversal(map, prev, room, pendingDir) {

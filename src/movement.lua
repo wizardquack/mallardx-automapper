@@ -15,6 +15,9 @@ local ALIASES = {
   sw = "sw", southwest = "sw",
   u = "u", up = "u",
   d = "d", down = "d",
+  -- No vector, but real exits: the engine stores them as edges and routes
+  -- (and speedwalks) through them; it just doesn't place or draw by them.
+  ["in"] = "in", out = "out",
 }
 
 function M.normalize(cmd)
@@ -25,10 +28,10 @@ end
 
 -- Normalize a GMCP exits table (mudstd.room: { DIR = { id = "..", inverse = ".." } })
 -- into a deterministic list of { dir = <canonical>, toKey = <target id string> }.
--- Only exits whose direction maps to one of the 10 canonical dirs (so it has a
--- known vector/reverse) and that carry a target id are kept; special exits like
--- IN/OUT and custom strings are dropped (no geometry). Sorted by dir for a
--- stable order (Lua `pairs` iteration order is undefined).
+-- Only exits whose direction maps to one of the 10 compass dirs or in/out (so
+-- it has a known reverse) and that carry a target id are kept; custom strings
+-- are dropped. Sorted by dir for a stable order (Lua `pairs` iteration order
+-- is undefined).
 function M.exits(exits)
   local out = {}
   if type(exits) ~= "table" then return out end

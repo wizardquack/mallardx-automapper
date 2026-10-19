@@ -2,6 +2,8 @@
 // current room; only the current z-level is drawn (multi-level view is a
 // later phase).
 
+import { isCompass } from "./directions.js";
+
 export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path = null, anchorId = null }) {
   const cur = map.currentId != null ? map.rooms[map.currentId] : null;
   const viewArea = areaId != null ? areaId : (cur ? cur.areaId : null);
@@ -47,6 +49,9 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
     const r = map.rooms[id];
     if (!placed[id]) continue;
     for (const dir of Object.keys(r.exits)) {
+      // in/out (and any other vectorless exit) route but aren't drawn: the
+      // room through a hatch sits wherever it was placed, not beside its door.
+      if (!isCompass(dir)) continue;
       const to = r.exits[dir].to;
       if (to == null || !placed[to]) continue;
       const key = id < to ? `${id}|${to}` : `${to}|${id}`;

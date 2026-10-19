@@ -3,7 +3,7 @@
 // walks this tree and binds onClick handlers by (action, arg). Node shape:
 //   { label?, danger?, separator?, header?, disabled?, submenu?, action?, arg? }
 
-import { DIRECTIONS, reverse } from "./directions.js";
+import { ALL_DIRECTIONS, reverse } from "./directions.js";
 
 function exitsSubmenu(map, room) {
   const nodes = [];
@@ -27,7 +27,7 @@ function exitsSubmenu(map, room) {
     });
   }
   if (dirs.length) nodes.push({ separator: true });
-  const free = DIRECTIONS.filter((d) => !room.exits[d]);
+  const free = ALL_DIRECTIONS.filter((d) => !room.exits[d]);
   nodes.push({
     label: "Add exit",
     submenu: free.length

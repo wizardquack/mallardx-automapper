@@ -20,21 +20,29 @@ check("abbrev sw", movement.normalize("sw"), "sw")
 check("up", movement.normalize("up"), "u")
 check("down", movement.normalize("down"), "d")
 check("uppercase + spaces", movement.normalize("  NorthEast  "), "ne")
+check("in", movement.normalize("in"), "in")
+check("OUT uppercase", movement.normalize(" OUT "), "out")
 check("non-movement", movement.normalize("look"), nil)
+check("enter is not a move", movement.normalize("enter"), nil)
 check("empty", movement.normalize(""), nil)
 
 -- M.exits: normalize a mudstd.room exits table.
 local ex = movement.exits({
   N = { id = "1/1/13", inverse = "S" },
   E = { id = "1/1/14" },
-  IN = { id = "1/1/99" },        -- non-canonical → dropped
+  IN = { id = "1/1/99" },        -- kept: a real exit with no vector
+  out = { id = "1/1/98" },       -- lowercase too
+  PORTAL = { id = "1/1/97" },    -- custom string → dropped
   U = { id = "1/1/20" },
 })
-check("exits count (IN dropped)", #ex, 3)
-check("exits sorted first dir", ex[1].dir, "e")   -- e, n, u sorted
+check("exits count (PORTAL dropped)", #ex, 5)
+check("exits sorted first dir", ex[1].dir, "e")   -- e, in, n, out, u sorted
 check("exits first toKey", ex[1].toKey, "1/1/14")
-check("exits second dir", ex[2].dir, "n")
-check("exits third dir", ex[3].dir, "u")
+check("exits keeps IN as in", ex[2].dir, "in")
+check("exits IN toKey", ex[2].toKey, "1/1/99")
+check("exits third dir", ex[3].dir, "n")
+check("exits keeps out", ex[4].dir, "out")
+check("exits fifth dir", ex[5].dir, "u")
 check("exits drops missing id", #movement.exits({ W = { inverse = "E" } }), 0)
 check("exits non-table", #movement.exits(nil), 0)
 

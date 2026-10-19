@@ -35,6 +35,18 @@ describe("computeLayout", () => {
     expect(layout.exits).toContainEqual({ x1: 100, y1: 100, x2: 100, y2: 60, onPath: false });
   });
 
+  it("draws no segment for an in/out exit (routable, not drawn)", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "A", name: "A", coords: { x: 0, y: 0, z: 0 } });
+    const b = addRoom(m, { key: "B", name: "B", coords: { x: 3, y: 0, z: 0 } });
+    linkExit(m, a.id, "in", b.id);
+    linkExit(m, b.id, "out", a.id);
+    setCurrent(m, a.id);
+    const layout = computeLayout(m, { cx: 0, cy: 0, scale: 10 });
+    expect(layout.rooms.length).toBe(2);
+    expect(layout.exits).toEqual([]);
+  });
+
   it("returns empty layout with no current room", () => {
     const m = createMap();
     expect(computeLayout(m, { cx: 0, cy: 0, scale: 40 })).toEqual({ rooms: [], exits: [] });

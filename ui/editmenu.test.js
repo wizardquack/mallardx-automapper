@@ -54,6 +54,8 @@ describe("roomMenuModel", () => {
     const addSub = find(exits, "Add exit").submenu;
     expect(addSub.some((n) => n.arg === "e")).toBe(false); // e already used
     expect(addSub.some((n) => n.arg === "n")).toBe(true);
+    expect(addSub.some((n) => n.arg === "in")).toBe(true);   // in/out offered too
+    expect(addSub.some((n) => n.arg === "out")).toBe(true);
   });
 
   it("lists other areas plus New area under both move menus", () => {

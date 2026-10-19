@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DIRECTIONS, vector, reverse, isDirection } from "./directions.js";
+import { DIRECTIONS, ALL_DIRECTIONS, vector, reverse, isDirection, isCompass } from "./directions.js";
 
 describe("directions", () => {
   it("has 10 canonical directions", () => {
@@ -34,5 +34,16 @@ describe("directions", () => {
   it("recognizes directions", () => {
     expect(isDirection("ne")).toBe(true);
     expect(isDirection("enter")).toBe(false);
+  });
+
+  it("keeps in/out as directions with a reverse but no vector", () => {
+    expect(ALL_DIRECTIONS).toEqual([...DIRECTIONS, "in", "out"]);
+    expect(isDirection("in")).toBe(true);
+    expect(isDirection("out")).toBe(true);
+    expect(isCompass("in")).toBe(false);
+    expect(isCompass("n")).toBe(true);
+    expect(vector("in")).toBeNull();
+    expect(reverse("in")).toBe("out");
+    expect(reverse("out")).toBe("in");
   });
 });

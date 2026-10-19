@@ -68,3 +68,16 @@ describe("distances", () => {
     expect(d[iso.id]).toBeUndefined();
   });
 });
+
+describe("findPath through in/out", () => {
+  it("routes through an in exit and back out", () => {
+    const m = createMap();
+    const [a, b] = line(m, 2);
+    const ship = addRoom(m, { key: "ship", name: "Airlock" });
+    linkExit(m, b.id, "in", ship.id);
+    linkExit(m, ship.id, "out", b.id);
+    expect(findPath(m, a.id, ship.id).map((s) => s.dir)).toEqual(["e", "in"]);
+    expect(findPath(m, ship.id, a.id).map((s) => s.dir)).toEqual(["out", "w"]);
+  });
+});
+

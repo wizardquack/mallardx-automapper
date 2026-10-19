@@ -89,3 +89,18 @@ describe("walk: control", () => {
     expect(w.isActive()).toBe(false);
   });
 });
+
+describe("walk: in/out steps", () => {
+  it("sends in and out as commands like any other step", () => {
+    const path = [
+      { fromId: "1", dir: "in", toId: "2" },
+      { fromId: "2", dir: "out", toId: "1" },
+    ];
+    const w = createWalk({ mode: "safe", timeoutMs: 1000 });
+    expect(w.start(path, 0)).toEqual([{ type: "send", cmd: "in" }]);
+    expect(w.onRoomSeen("2", 10)).toEqual([{ type: "send", cmd: "out" }]);
+    const b = createWalk({ mode: "batched", separator: ";" });
+    expect(b.start(path, 0)).toEqual([{ type: "send", cmd: "in;out" }]);
+  });
+});
+
