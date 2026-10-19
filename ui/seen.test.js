@@ -1,0 +1,27 @@
+import { describe, it, expect } from "vitest";
+import { createMap, getRoomByKey } from "./graph.js";
+import { resolveRoomSeen } from "./identity.js";
+import { seenFromFrame } from "./seen.js";
+
+describe("seenFromFrame", () => {
+  it("rejects a frame without a key", () => {
+    expect(seenFromFrame(null)).toBeNull();
+    expect(seenFromFrame({ name: "X" })).toBeNull();
+  });
+
+  it("carries the room fields through", () => {
+    const s = seenFromFrame({ key: "A", name: "Hall", env: "inside", areaTag: "z", areaField: "area" });
+    expect(s).toMatchObject({ key: "A", name: "Hall", env: "inside", areaTag: "z", areaField: "area" });
+    expect(s.exits).toBeUndefined();
+  });
+
+  it("forwards mudstd exits so known neighbours get linked", () => {
+    const frame = { key: "A", name: "West", exits: [{ dir: "e", toKey: "B" }] };
+    expect(seenFromFrame(frame).exits).toEqual([{ dir: "e", toKey: "B" }]);
+
+    const m = createMap();
+    resolveRoomSeen(m, seenFromFrame({ key: "B", name: "East" }), null);
+    const { room: a } = resolveRoomSeen(m, seenFromFrame(frame), null);
+    expect(a.exits.e).toEqual({ to: getRoomByKey(m, "B").id });
+  });
+});

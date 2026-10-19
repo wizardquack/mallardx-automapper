@@ -11,6 +11,7 @@ import { createHistory } from "./history.js";
 import { roomMenuModel } from "./editmenu.js";
 import { addArea } from "./graph.js";
 import { resolveRoomSeen } from "./identity.js";
+import { seenFromFrame } from "./seen.js";
 import { fingerprint, suggestNamePattern, suggestExitsPattern } from "./fingerprint.js";
 import { computeLayout, draw, DEFAULT_COLORS } from "./render.js";
 import { findPath } from "./pathfind.js";
@@ -477,8 +478,8 @@ function ingestRoom(seen) {
 }
 
 panel.on("room_seen", (frame) => {
-  if (!frame || !frame.key) return;
-  ingestRoom({ key: frame.key, name: frame.name, env: frame.env, areaTag: frame.areaTag, areaField: frame.areaField });
+  const seen = seenFromFrame(frame);
+  if (seen) ingestRoom(seen);
 });
 
 // Non-GMCP: the adapter assembled a room's name + exits from output lines.
