@@ -25,3 +25,13 @@ describe("seenFromFrame", () => {
     expect(a.exits.e).toEqual({ to: getRoomByKey(m, "B").id });
   });
 });
+
+describe("seenFromFrame coords", () => {
+  it("passes valid coords, defaults z, and drops malformed ones", () => {
+    expect(seenFromFrame({ key: "A", coords: { x: 1, y: 2, z: 3 } }).coords).toEqual({ x: 1, y: 2, z: 3 });
+    expect(seenFromFrame({ key: "A", coords: { x: 1, y: 2 } }).coords).toEqual({ x: 1, y: 2, z: 0 });
+    expect(seenFromFrame({ key: "A", coords: { x: "1", y: 2 } }).coords).toBeUndefined();
+    expect(seenFromFrame({ key: "A", coords: null }).coords).toBeUndefined();
+    expect(seenFromFrame({ key: "A" }).coords).toBeUndefined();
+  });
+});

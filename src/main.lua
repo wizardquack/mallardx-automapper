@@ -6,46 +6,15 @@
 local movement = require("movement")
 local sendguard = require("sendguard")
 local capture = require("capture")
+local roomframe = require("roomframe")
 
 local panel = mud.panel("map")
 local last_room = nil  -- replayed to the iframe on (re)mount
 local learn_handle = nil  -- catch-all trigger handle while '/map learn' is on
 
--- Pick a generic area signal from room.info: prefer a real zone name, fall
--- back to a coarse boundary flag. The engine (ui/area.js) decides semantics
--- from the field NAME, so the adapter stays game-agnostic.
-local AREA_FIELDS = { "area", "zone", "domain", "kind" }
-local function area_signal(data)
-  for _, f in ipairs(AREA_FIELDS) do
-    if data[f] ~= nil then return f, tostring(data[f]) end
-  end
-  return nil, nil
-end
-
--- Normalize a GMCP room payload into the engine's room_seen shape. Handles both
--- the generic `room.info` package (Discworld/IRE — `identifier`, exits derived
--- from movement) and the mudstandards `mudstd.room.info` package (string `id`,
--- explicit `exits` map of { DIR = { id, inverse } }). `with_exits` forwards the
--- explicit exits so the engine can close loops without walking every edge.
-local function normalize_room(data, with_exits)
-  if type(data) ~= "table" then return nil end
-  local key = data.identifier or data.id or data.num or data.vnum
-  if key == nil then return nil end
-  local area_field, area_tag = area_signal(data)
-  local room = {
-    key = tostring(key),
-    name = data.name or "",
-    env = tostring(data.terrain or data.environment or ""),
-    areaField = area_field,
-    areaTag = area_tag,
-  }
-  if with_exits then room.exits = movement.exits(data.exits) end
-  return room
-end
-
 -- room.info → normalized room_seen. `identifier` is the stable room key.
 gmcp.on("room.info", function(_pkg, data)
-  local room = normalize_room(data, false)
+  local room = roomframe.normalize(data, false)
   if not room then return end
   last_room = room
   panel:post("room_seen", last_room)
@@ -54,7 +23,7 @@ end)
 -- mudstd.room.info (mudstandards.org/gmcp/mudstandards_room) → same room_seen,
 -- plus its explicit exits (each carries the target room's id) for direct linking.
 gmcp.on("mudstd.room.info", function(_pkg, data)
-  local room = normalize_room(data, true)
+  local room = roomframe.normalize(data, true)
   if not room then return end
   last_room = room
   panel:post("room_seen", last_room)

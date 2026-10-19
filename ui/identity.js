@@ -30,6 +30,8 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
   if (existing) {
     existing.name = seen.name || existing.name;
     existing.env = seen.env || existing.env;
+    // Server coordinates win, even over where the room was placed before.
+    if (seen.coords) placeAtServerCoords(map, existing, seen.coords);
     // Record the traversed edge even when the destination already exists —
     // backtracks and loop-closing hops are the only chance to capture it.
     linkTraversal(map, prev, existing, dir, !inferred);
@@ -41,7 +43,9 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
 
   const areaId = resolveArea(map, seen, prev, cfg || {});
   let coords;
-  if (prev && prev.areaId === areaId && dir && isCompass(dir)) {
+  if (seen.coords) {
+    coords = seen.coords;   // and claimed below, displacing an unplaced occupant
+  } else if (prev && prev.areaId === areaId && dir && isCompass(dir)) {
     const v = vector(dir);
     coords = { x: prev.coords.x + v.dx, y: prev.coords.y + v.dy, z: prev.coords.z + v.dz };
   } else {
@@ -52,11 +56,28 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
   }
 
   const room = addRoom(map, { key: seen.key, name: seen.name, env: seen.env, coords, areaId });
+  if (seen.coords) placeAtServerCoords(map, room, seen.coords);
   linkTraversal(map, prev, room, dir, !inferred);
   recordExitKeys(room, seen.exits);
   linkKnownExits(map, room, seen.exits);
   setCurrent(map, room.id);
   return { room, created: true };
+}
+
+// Put a room at the cell the server says it's in, and mark it so. A room
+// already in that cell of the area that the server didn't place is moved to
+// the area's first free cell; one the server did place stays (two rooms the
+// server puts in one cell is the server's call).
+function placeAtServerCoords(map, room, c) {
+  room.coords = { x: c.x, y: c.y, z: c.z };
+  room.serverCoords = true;
+  for (const id of Object.keys(map.rooms)) {
+    const other = map.rooms[id];
+    if (other === room || other.areaId !== room.areaId || other.serverCoords) continue;
+    if (other.coords.x === c.x && other.coords.y === c.y && other.coords.z === c.z) {
+      other.coords = firstFreeCell(map, room.areaId);
+    }
+  }
 }
 
 // Which of prev's exits leads to the room keyed `key`? First from the exits

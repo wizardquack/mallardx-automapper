@@ -246,3 +246,56 @@ describe("resolveRoomSeen — direction inferred from exits", () => {
     expect(a.exitKeys).toEqual({ w: "C" });
   });
 });
+
+describe("resolveRoomSeen — server coordinates", () => {
+  it("places a new room at its server coords, ignoring the movement vector", () => {
+    const m = createMap();
+    resolveRoomSeen(m, { key: "A", name: "A", coords: { x: 5, y: 2, z: 0 } }, null);
+    const b = resolveRoomSeen(m, { key: "B", name: "B", coords: { x: 9, y: 9, z: 1 } }, "n").room;
+    expect(b.coords).toEqual({ x: 9, y: 9, z: 1 });
+    expect(b.serverCoords).toBe(true);
+  });
+
+  it("moves an already-placed room to its server coords on a later visit", () => {
+    const m = createMap();
+    resolveRoomSeen(m, { key: "A", name: "A" }, null);
+    const b = resolveRoomSeen(m, { key: "B", name: "B" }, "e").room;
+    expect(b.coords).toEqual({ x: 1, y: 0, z: 0 });
+    resolveRoomSeen(m, { key: "B", name: "B", coords: { x: 4, y: -3, z: 0 } }, null);
+    expect(b.coords).toEqual({ x: 4, y: -3, z: 0 });
+  });
+
+  it("without coords, placement is unchanged (and a server-placed room stays put)", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "A", coords: { x: 3, y: 3, z: 0 } }, null).room;
+    const b = resolveRoomSeen(m, { key: "B", name: "B" }, "s").room;
+    expect(b.coords).toEqual({ x: 3, y: 4, z: 0 });
+    expect(b.serverCoords).toBeUndefined();
+    resolveRoomSeen(m, { key: "A", name: "A" }, "n");
+    expect(a.coords).toEqual({ x: 3, y: 3, z: 0 });
+  });
+
+  it("re-places a room it displaces that the server didn't place", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "A" }, null).room;      // (0,0,0), no coords
+    const b = resolveRoomSeen(m, { key: "B", name: "B", coords: { x: 0, y: 0, z: 0 } }, null).room;
+    expect(b.coords).toEqual({ x: 0, y: 0, z: 0 });
+    expect(a.coords).not.toEqual({ x: 0, y: 0, z: 0 });
+    expect(a.coords).toEqual({ x: 1, y: 0, z: 0 });                        // first free cell
+  });
+
+  it("leaves a server-placed occupant where the server put it", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "A", coords: { x: 2, y: 2, z: 0 } }, null).room;
+    resolveRoomSeen(m, { key: "B", name: "B", coords: { x: 2, y: 2, z: 0 } }, null);
+    expect(a.coords).toEqual({ x: 2, y: 2, z: 0 });
+  });
+
+  it("only displaces rooms in the same area", () => {
+    const m = createMap();
+    const KIND = { strategy: "auto" };
+    const a = resolveRoomSeen(m, { key: "A", name: "A", areaTag: "x", areaField: "area" }, null, KIND).room;
+    resolveRoomSeen(m, { key: "B", name: "B", areaTag: "y", areaField: "area", coords: { x: 0, y: 0, z: 0 } }, null, KIND);
+    expect(a.coords).toEqual({ x: 0, y: 0, z: 0 });
+  });
+});

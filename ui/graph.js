@@ -19,7 +19,9 @@ export function createMap() {
 
 // Rooms may also carry fields set by identity.js and absent on rooms from
 // older saves (so readers treat a missing one as empty):
-//   exitKeys — { [dir]: targetKey }, the exits the room last reported by key.
+//   exitKeys     — { [dir]: targetKey }, the exits the room last reported by key.
+//   serverCoords — true once the server has placed the room by coordinates;
+//                  such a room isn't displaced by another the server places.
 export function addRoom(map, { key, fp, name, env, coords, areaId }) {
   const id = String(map.nextId++);
   const room = {
