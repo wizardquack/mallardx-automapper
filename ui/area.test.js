@@ -60,4 +60,25 @@ describe("resolveArea", () => {
     expect(b).toBe(a);
     expect(getArea(m, a).label).toBe("Map");
   });
+
+  it("zone: areaName labels the area; the zone value stays its key", () => {
+    const m = createMap();
+    const a = resolveArea(m, { name: "R", areaTag: "tiss", areaField: "area", areaName: "T.I.S.S." }, null, cfg);
+    expect(getArea(m, a).label).toBe("T.I.S.S.");
+    expect(getArea(m, a).key).toBe("zone:tiss");
+    // Same key, no name this time: same area, label kept.
+    expect(resolveArea(m, { name: "R2", areaTag: "tiss", areaField: "area" }, null, cfg)).toBe(a);
+    expect(getArea(m, a).label).toBe("T.I.S.S.");
+  });
+
+  it("zone: a changed areaName relabels the existing area", () => {
+    const m = createMap();
+    const a = resolveArea(m, { name: "R", areaTag: "ship-7", areaField: "area" }, null, cfg);
+    expect(getArea(m, a).label).toBe("ship-7");
+    const again = resolveArea(m, { name: "R", areaTag: "ship-7", areaField: "area", areaName: "Brass Kettle" }, null, cfg);
+    expect(again).toBe(a);
+    expect(getArea(m, a).label).toBe("Brass Kettle");
+    resolveArea(m, { name: "R", areaTag: "ship-7", areaField: "area", areaName: "Copper Kettle" }, null, cfg);
+    expect(getArea(m, a).label).toBe("Copper Kettle");
+  });
 });

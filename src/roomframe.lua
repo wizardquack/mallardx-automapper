@@ -56,6 +56,10 @@ function M.normalize(data, with_exits)
     areaField = area_field,
     areaTag = area_tag,
     coords = M.coords(data.coords),
+    -- The area's display name (mudstd extension); `area` stays its key.
+    -- Strings and numbers only: a JSON null may arrive as a userdata sentinel.
+    areaName = (type(data.areaName) == "string" or type(data.areaName) == "number")
+      and tostring(data.areaName) or nil,
   }
   if with_exits then room.exits = movement.exits(data.exits) end
   return room

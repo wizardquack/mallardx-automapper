@@ -35,3 +35,11 @@ describe("seenFromFrame coords", () => {
     expect(seenFromFrame({ key: "A" }).coords).toBeUndefined();
   });
 });
+
+describe("seenFromFrame areaName", () => {
+  it("passes a non-empty areaName through", () => {
+    expect(seenFromFrame({ key: "A", areaTag: "tiss", areaName: "T.I.S.S." }).areaName).toBe("T.I.S.S.");
+    expect(seenFromFrame({ key: "A", areaName: "" }).areaName).toBeUndefined();
+    expect(seenFromFrame({ key: "A" }).areaName).toBeUndefined();
+  });
+});

@@ -11,6 +11,8 @@ export function seenFromFrame(frame) {
     env: frame.env,
     areaTag: frame.areaTag,
     areaField: frame.areaField,
+    // The area's display name, where the server sends one; areaTag stays its key.
+    areaName: typeof frame.areaName === "string" && frame.areaName ? frame.areaName : undefined,
     // mudstd.room's explicit exits ([{ dir, toKey }]); absent on room.info.
     exits: Array.isArray(frame.exits) ? frame.exits : undefined,
     // Server-sent grid position ({ x, y, z }), already normalized by the

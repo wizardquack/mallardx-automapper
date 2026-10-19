@@ -28,8 +28,12 @@ function ensureArea(map, key, label) {
   return addArea(map, { key, label }).id;
 }
 
+// The zone value is the area's key. Its label is the server's `areaName`
+// where sent (kept current if the server renames it), else the value itself.
 function resolveZone(map, seen) {
-  return ensureArea(map, "zone:" + seen.areaTag, String(seen.areaTag));
+  const id = ensureArea(map, "zone:" + seen.areaTag, seen.areaName || String(seen.areaTag));
+  if (seen.areaName) getArea(map, id).label = seen.areaName;
+  return id;
 }
 
 function resolveBoundary(map, seen, prev, cfg) {
