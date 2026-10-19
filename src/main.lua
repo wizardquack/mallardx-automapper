@@ -1,7 +1,7 @@
--- Automapper host adapter (Approach A). Thin signal + IO shim: forwards
--- room.info GMCP and movement sends to the iframe engine, executes the engine's
--- speedwalk sends, and owns per-world storage. All graph/identity/render/area/
--- pathfind/search/walk logic lives in ui/*.js.
+-- Automapper host adapter (Approach A). Thin signal + IO shim: forwards room
+-- GMCP (mudstd.room.info, else room.info) and movement sends to the iframe
+-- engine, executes the engine's speedwalk sends, and owns per-world storage.
+-- All graph/identity/render/area/pathfind/search/walk logic lives in ui/*.js.
 
 local movement = require("movement")
 local sendguard = require("sendguard")
