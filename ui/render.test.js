@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createMap, addRoom, linkExit, setCurrent, addArea } from "./graph.js";
-import { computeLayout, envColor } from "./render.js";
+import { computeLayout, envColor, draw, fitText, NAME_LABEL_MIN_SCALE } from "./render.js";
+import { setTerrains } from "./graph.js";
 
 function sampleMap() {
   const m = createMap();
@@ -49,7 +50,7 @@ describe("computeLayout", () => {
 
   it("returns empty layout with no current room", () => {
     const m = createMap();
-    expect(computeLayout(m, { cx: 0, cy: 0, scale: 40 })).toEqual({ rooms: [], exits: [] });
+    expect(computeLayout(m, { cx: 0, cy: 0, scale: 40 })).toEqual({ rooms: [], exits: [], tints: [], regions: [], scale: 40 });
   });
 
   it("envColor is deterministic and non-empty", () => {
@@ -142,5 +143,111 @@ describe("computeLayout: viewedZ + path highlight (Phase 2)", () => {
     m.currentId = a.id;
     const layout = computeLayoutP2(m, { cx: 0, cy: 0, scale: 10, areaId: "1" });
     expect(layout.rooms[0].onPath).toBe(false);
+  });
+});
+
+// A canvas stand-in that records fills, rects and text, with 6px-per-char text.
+function recordingCtx() {
+  const calls = [];
+  const ctx = {
+    calls,
+    fillRect: (...a) => calls.push(["fillRect", ctx.fillStyle, ...a]),
+    strokeRect: () => {}, beginPath: () => {}, moveTo: () => {}, lineTo: () => {}, stroke: () => {},
+    strokeText: () => {},
+    fillText: (t, x, y) => calls.push(["fillText", t, x, y]),
+    measureText: (t) => ({ width: t.length * 6 }),
+  };
+  return ctx;
+}
+const texts = (ctx) => ctx.calls.filter((c) => c[0] === "fillText").map((c) => c[1]);
+
+describe("computeLayout: annotations", () => {
+  it("carries each room's fill, glyph, name and region", () => {
+    const { m, a } = sampleMap();
+    setTerrains(m, { city: { label: "City", color: "#123456" } });
+    a.tags = ["market"]; a.region = "docks";
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    const ra = L.rooms.find((r) => r.id === a.id);
+    expect(ra).toMatchObject({ fill: "#123456", glyph: "$", name: "A", region: "docks" });
+    expect(L.scale).toBe(40);
+  });
+
+  it("places one label per region, centred over its rooms and above the topmost", () => {
+    const m = createMap();
+    const rs = [0, 1, 2].map((x) => addRoom(m, { key: `k${x}`, coords: { x, y: 0, z: 0 } }));
+    const fore = addRoom(m, { key: "f", coords: { x: 1, y: -1, z: 0 } });
+    for (const r of [...rs, fore]) r.region = "docks";
+    setCurrent(m, rs[0].id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    expect(L.regions).toEqual([{ key: "docks", name: "docks", x: 40, top: -40 }]);
+  });
+
+  it("bridges a one-cell gap between rooms of a region, but not an occupied one", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", coords: { x: 0, y: 0, z: 0 } });
+    const b = addRoom(m, { key: "b", coords: { x: 2, y: 0, z: 0 } });
+    const c = addRoom(m, { key: "c", coords: { x: 0, y: 2, z: 0 } });
+    addRoom(m, { key: "mid", coords: { x: 0, y: 1, z: 0 } });   // no region, sits in a↔c's gap
+    for (const r of [a, b, c]) r.region = "docks";
+    setCurrent(m, a.id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 10 });
+    expect(L.tints.map((t) => [t.px, t.py])).toEqual([[0, 0], [10, 0], [20, 0], [0, 20]]);
+  });
+
+  it("labels each separated cluster of a region on its own", () => {
+    const m = createMap();
+    const near = [0, 2].map((x) => addRoom(m, { key: `n${x}`, coords: { x, y: 0, z: 0 } }));
+    const far = addRoom(m, { key: "far", coords: { x: 22, y: 0, z: 0 } });
+    for (const r of [...near, far]) r.region = "concourse";
+    setCurrent(m, near[0].id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 10 });
+    expect(L.regions.map((g) => g.x)).toEqual([10, 220]);
+  });
+});
+
+describe("draw: annotations", () => {
+  function layoutWith(scale) {
+    const { m, a } = sampleMap();
+    a.tags = ["lift"]; a.region = "hub"; a.name = "Hub";
+    return computeLayout(m, { cx: 0, cy: 0, scale });
+  }
+
+  it("tints region cells, draws glyphs, and names rooms at the large zooms", () => {
+    const ctx = recordingCtx();
+    draw(ctx, layoutWith(NAME_LABEL_MIN_SCALE), { roomSize: 22 });
+    const tint = ctx.calls.find((c) => c[0] === "fillRect" && String(c[1]).startsWith("hsla"));
+    expect(tint.slice(2)).toEqual([-22, -22, 44, 44]);
+    expect(texts(ctx)).toEqual(expect.arrayContaining(["⇅", "Hub", "B", "hub"]));
+  });
+
+  it("leaves room names off at smaller zooms but keeps the region's", () => {
+    const ctx = recordingCtx();
+    draw(ctx, layoutWith(32), { roomSize: 16 });
+    expect(texts(ctx)).toEqual(["⇅", "hub"]);
+  });
+
+  it("draws no names or region labels when labels are off, and no glyph in a tiny room", () => {
+    const ctx = recordingCtx();
+    draw(ctx, layoutWith(16), { roomSize: 8, labels: false });
+    expect(texts(ctx)).toEqual([]);
+  });
+
+  it("fitText truncates with an ellipsis", () => {
+    const ctx = recordingCtx();
+    expect(fitText(ctx, "Hall", 40)).toBe("Hall");
+    expect(fitText(ctx, "Observation Lounge", 40)).toBe("Obser…");
+  });
+});
+
+describe("draw: region label collisions", () => {
+  it("skips a region label that would overlap one already drawn", () => {
+    const ctx = recordingCtx();
+    const layout = { rooms: [], exits: [], tints: [], scale: 40, regions: [
+      { key: "a", name: "Alpha", x: 0, top: 0 },
+      { key: "b", name: "Bravo", x: 10, top: 0 },
+      { key: "c", name: "Charlie", x: 200, top: 0 },
+    ] };
+    draw(ctx, layout, { roomSize: 20 });
+    expect(texts(ctx)).toEqual(["Alpha", "Charlie"]);
   });
 });

@@ -128,3 +128,30 @@ body {
 }
 .learn-hint { color: var(--fg-muted, #94a3b8); margin: 4px 0 0; }
 .learn-empty { color: var(--fg-muted, #6b7280); padding: 10px; text-align: center; }
+
+/* Header toggles (labels, legend): lit when on. */
+.map-header button.labels-toggle { width: auto; padding: 0 5px; font-size: 11px; }
+.map-header button.on { border-color: var(--accent, #38bdf8); color: var(--accent, #38bdf8); }
+
+/* Legend: what the fills, glyphs and tints in view mean. */
+.legend {
+  position: absolute; top: 8px; right: 8px; z-index: 4;
+  max-width: 45%; max-height: calc(100% - 16px); overflow: auto;
+  padding: 6px 8px; font-size: 12px;
+  background: var(--bg-elevated, #111827); color: var(--fg, #e5e7eb);
+  border: 1px solid var(--border, #374151); border-radius: 6px;
+  opacity: 0.95;
+}
+.legend-head {
+  margin: 6px 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--fg-muted, #9ca3af);
+}
+.legend-head:first-child { margin-top: 0; }
+.legend-row { display: flex; align-items: center; gap: 6px; padding: 1px 0; white-space: nowrap; }
+.legend-swatch {
+  flex: none; width: 12px; height: 12px; border-radius: 2px;
+  border: 1px solid var(--border, #374151);
+}
+.legend-region { opacity: 0.6; }
+.legend-glyph { flex: none; width: 12px; text-align: center; font-weight: bold; }
+.legend-empty { max-width: 220px; white-space: normal; color: var(--fg-muted, #9ca3af); }

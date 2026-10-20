@@ -3,15 +3,17 @@
 // Mallard's SDK shim.
 
 import {
-  createMap, currentRoom, toJSON, fromJSON, listAreas, getRoom, getArea, setCurrent,
+  createMap, currentRoom, toJSON, fromJSON, listAreas, getRoom, getArea, setCurrent, setTerrains,
 } from "./graph.js";
 import { renameRoom, deleteRoom, mergeRooms, addExit, deleteExit, setOneWay,
-  moveRoom, isCellOccupied, moveToArea, computePocket, movePocket } from "./edits.js";
+  moveRoom, isCellOccupied, moveToArea, computePocket, movePocket,
+  setRoomColor, setRoomSymbol, setRoomNote } from "./edits.js";
+import { legendModel, tooltipSpec, parseColor } from "./annotate.js";
 import { createHistory } from "./history.js";
 import { roomMenuModel } from "./editmenu.js";
 import { addArea } from "./graph.js";
 import { resolveRoomSeen } from "./identity.js";
-import { seenFromFrame } from "./seen.js";
+import { seenFromFrame, terrainsFromFrame } from "./seen.js";
 import { fingerprint, suggestNamePattern, suggestExitsPattern } from "./fingerprint.js";
 import { computeLayout, draw, DEFAULT_COLORS } from "./render.js";
 import { findPath } from "./pathfind.js";
@@ -45,6 +47,18 @@ let panX = 0, panY = 0;
 let lastLayout = { rooms: [] };
 let lastRoomSize = 0;
 let pocketPreview = null;   // { ids:Set<string>, areaId:string } while previewing
+let pendingTerrains = null; // mudstd.room.terrain received before the map loaded
+
+// View preferences, kept across reloads where the WebView allows storage.
+function pref(name, fallback) {
+  try { const v = localStorage.getItem(`automapper.${name}`); return v == null ? fallback : v === "1"; }
+  catch { return fallback; }
+}
+function setPref(name, on) {
+  try { localStorage.setItem(`automapper.${name}`, on ? "1" : "0"); } catch { /* no storage */ }
+}
+let showLabels = pref("labels", true);
+let showLegend = pref("legend", false);
 
 // ── Persistence (debounced) ────────────────────────────────────────────────
 let persistTimer = null;
@@ -118,6 +132,8 @@ function themeColors() {
     roomStroke: v("--border", DEFAULT_COLORS.roomStroke),
     roomPath: v("--accent", DEFAULT_COLORS.roomPath),
     current: DEFAULT_COLORS.current,
+    label: v("--fg", DEFAULT_COLORS.label),
+    halo: v("--bg", DEFAULT_COLORS.halo),
   };
 }
 
@@ -140,11 +156,59 @@ function redraw() {
   });
   lastLayout = layout;
   lastRoomSize = Math.max(8, ZOOMS[zoomIdx] * 0.5);
-  draw(ctx, layout, { roomSize: lastRoomSize, colors: themeColors() });
+  draw(ctx, layout, { roomSize: lastRoomSize, colors: themeColors(), labels: showLabels });
   const cur = currentRoom(map);
   $name.textContent = cur ? (cur.name || "(unnamed room)") : "Not mapping";
   drawPocketOverlay();
+  renderLegend();
 }
+
+// ── Legend ───────────────────────────────────────────────────────────────────
+// What the colours and glyphs in view mean (annotate.js legendModel).
+const $legend = document.querySelector(".legend");
+const $legendBtn = document.querySelector(".legend-toggle");
+const $labelsBtn = document.querySelector(".labels-toggle");
+function renderLegend() {
+  $legend.hidden = !showLegend;
+  $legendBtn.classList.toggle("on", showLegend);
+  $labelsBtn.classList.toggle("on", showLabels);
+  if (!showLegend) return;
+  const model = legendModel(map, lastLayout.rooms.map((r) => map.rooms[r.id]).filter(Boolean));
+  $legend.innerHTML = "";
+  const section = (title, items) => {
+    if (!items.length) return;
+    const h = document.createElement("div");
+    h.className = "legend-head";
+    h.textContent = title;
+    $legend.appendChild(h);
+    for (const [mark, text] of items) {
+      const row = document.createElement("div");
+      row.className = "legend-row";
+      row.append(mark, Object.assign(document.createElement("span"), { textContent: text }));
+      $legend.appendChild(row);
+    }
+  };
+  const swatch = (color, cls = "legend-swatch") => {
+    const el = document.createElement("span");
+    el.className = cls;
+    el.style.background = color;
+    return el;
+  };
+  section("Terrain", model.terrains.map((t) => [swatch(t.color), t.label]));
+  section("Here", model.glyphs.map((g) => [
+    Object.assign(document.createElement("span"), { className: "legend-glyph", textContent: g.glyph }),
+    g.tags.join(", "),
+  ]));
+  section("Regions", model.regions.map((r) => [swatch(r.color, "legend-swatch legend-region"), r.name]));
+  if (!$legend.childElementCount) {
+    $legend.appendChild(Object.assign(document.createElement("div"), {
+      className: "legend-empty",
+      textContent: "Nothing to explain here yet — rooms are plain until the server sends terrain or tags, or you colour them.",
+    }));
+  }
+}
+$legendBtn.addEventListener("click", () => { showLegend = !showLegend; setPref("legend", showLegend); redraw(); });
+$labelsBtn.addEventListener("click", () => { showLabels = !showLabels; setPref("labels", showLabels); redraw(); });
 
 // ── Walk controller ──────────────────────────────────────────────────────────
 function startWalkTimer() {
@@ -227,7 +291,8 @@ function notifyCandidates(candidates, verb) {
 // ── Inline widgets (no native prompt/confirm — broken in Mallard's WebView) ──
 // Inline text prompt — resolves to the trimmed string, or null on cancel.
 // window.prompt does not work in Mallard's WebView, so we build our own.
-function inlinePrompt(title, initial = "") {
+// `allowEmpty` resolves an emptied field to "" (to clear) rather than null.
+function inlinePrompt(title, initial = "", allowEmpty = false) {
   return new Promise((resolve) => {
     const back = document.createElement("div");
     back.className = "edit-modal-back";
@@ -242,10 +307,11 @@ function inlinePrompt(title, initial = "") {
     document.body.appendChild(back);
     input.focus(); input.select();
     const done = (val) => { back.remove(); resolve(val); };
-    back.querySelector(".edit-ok").addEventListener("click", () => done(input.value.trim() || null));
+    const value = () => input.value.trim() || (allowEmpty ? "" : null);
+    back.querySelector(".edit-ok").addEventListener("click", () => done(value()));
     back.querySelector(".edit-cancel").addEventListener("click", () => done(null));
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") done(input.value.trim() || null);
+      if (e.key === "Enter") done(value());
       else if (e.key === "Escape") done(null);
     });
   });
@@ -278,6 +344,23 @@ async function handleMenuAction(action, arg, roomId) {
     const r = getRoom(map, roomId); if (!r) return;
     const name = await inlinePrompt("Rename room", r.name || "");
     if (name != null) applyEdit(() => renameRoom(map, roomId, name));
+  } else if (action === "setColor") {
+    applyEdit(() => setRoomColor(map, roomId, arg));
+  } else if (action === "setColorCustom") {
+    const r = getRoom(map, roomId); if (!r) return;
+    const input = await inlinePrompt("Room colour (hex, e.g. #3aa8a0)", r.color || "");
+    if (input == null) return;
+    const hex = parseColor(input);
+    if (!hex) { panel.post("notify", { text: `'${input}' isn't a hex colour.` }); return; }
+    applyEdit(() => setRoomColor(map, roomId, hex));
+  } else if (action === "setSymbol") {
+    const r = getRoom(map, roomId); if (!r) return;
+    const sym = await inlinePrompt("Symbol (1–2 characters; empty clears)", r.symbol || "", true);
+    if (sym != null) applyEdit(() => setRoomSymbol(map, roomId, sym));
+  } else if (action === "setNote") {
+    const r = getRoom(map, roomId); if (!r) return;
+    const note = await inlinePrompt("Note (empty clears)", r.note || "", true);
+    if (note != null) applyEdit(() => setRoomNote(map, roomId, note));
   } else if (action === "setCurrent") {
     applyEdit(() => { setCurrent(map, roomId); return true; });
   } else if (action === "deleteRoom") {
@@ -446,6 +529,7 @@ panel.on("load", (frame) => {
   if (frame && frame.cfg) cfg = { ...cfg, ...frame.cfg };
   if (frame && frame.walk) walkCfg = { ...walkCfg, ...frame.walk };
   loaded = true;
+  if (pendingTerrains) { setTerrains(map, pendingTerrains); pendingTerrains = null; }
   stopWalkTimer(); walk = null; highlightPath = null;
   focusCurrentArea();
   rebuildAreaSelect();
@@ -466,6 +550,7 @@ function ingestRoom(seen) {
     if (d != null) pendingDir = d;
   }
   resolveRoomSeen(map, seen, pendingDir, cfg);
+  hideHover();   // the view recentres; a card would point at where the room was
   history.clear();
   pendingDir = null;
   if (walk && walk.isActive()) {
@@ -476,6 +561,14 @@ function ingestRoom(seen) {
   redraw();
   schedulePersist();
 }
+
+// mudstd.room.terrain: the server's terrain labels and colours. Kept in the
+// map so they colour rooms after a reload or offline.
+panel.on("terrains", (frame) => {
+  const defs = terrainsFromFrame(frame);
+  if (!loaded) { pendingTerrains = { ...(pendingTerrains || {}), ...defs }; return; }
+  if (setTerrains(map, defs)) { redraw(); schedulePersist(); }
+});
 
 panel.on("room_seen", (frame) => {
   const seen = seenFromFrame(frame);
@@ -605,7 +698,39 @@ function anchorForArea(areaId) {
     .sort((a, b) => Number(a) - Number(b));
   return ids.length ? map.rooms[ids[0]] : null;
 }
+// Hover card: the host tooltip (title, rows, note) over a room after a short
+// rest. Hidden when the pointer leaves the room, the canvas, or starts a drag.
+let hoverId = null, hoverTimer = null;
+function hideHover() {
+  if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
+  if (hoverId != null && panel.tooltip) panel.tooltip.hide();
+  hoverId = null;
+}
+$canvas.addEventListener("mousemove", (e) => {
+  if (dragging || !panel.tooltip) return;
+  const id = roomAt(e.clientX, e.clientY);
+  if (id === hoverId) return;
+  hideHover();
+  if (id == null) return;
+  hoverId = id;
+  hoverTimer = setTimeout(() => {
+    hoverTimer = null;
+    const room = getRoom(map, id);
+    const lr = lastLayout.rooms.find((r) => r.id === id);
+    if (!room || !lr) return;
+    const rect = $canvas.getBoundingClientRect();
+    const half = lastRoomSize / 2;
+    panel.tooltip.show(
+      { x: rect.left + lr.px - half, y: rect.top + lr.py - half, width: lastRoomSize, height: lastRoomSize },
+      tooltipSpec(map, room),
+    );
+  }, 350);
+});
+$canvas.addEventListener("mouseleave", hideHover);
+$canvas.addEventListener("wheel", hideHover, { passive: true });
+
 $canvas.addEventListener("mousedown", (e) => {
+  hideHover();
   dragging = true; movedDuringDrag = false;
   lastX = e.clientX; lastY = e.clientY; downX = e.clientX; downY = e.clientY;
   dragRoomId = (e.button === 0 && !pocketPreview) ? roomAt(e.clientX, e.clientY) : null;
@@ -669,6 +794,7 @@ $canvas.addEventListener("dblclick", (e) => {
 });
 $canvas.addEventListener("contextmenu", (e) => {
   e.preventDefault();
+  hideHover();
   const id = roomAt(e.clientX, e.clientY);
   if (id != null) openRoomMenu(e.clientX, e.clientY, id);
 });

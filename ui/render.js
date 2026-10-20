@@ -3,6 +3,15 @@
 // later phase).
 
 import { isCompass } from "./directions.js";
+import { fillColor, roomGlyph, regionColor, regionName, inkOn, envColor } from "./annotate.js";
+
+export { envColor };
+
+// Room names are drawn at these cell sizes and up (the two largest zooms);
+// region names and glyphs need less room.
+export const NAME_LABEL_MIN_SCALE = 44;
+export const REGION_LABEL_MIN_SCALE = 24;
+export const GLYPH_MIN_ROOM = 12;
 
 export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path = null, anchorId = null }) {
   const cur = map.currentId != null ? map.rooms[map.currentId] : null;
@@ -21,7 +30,7 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       .sort((a, b) => Number(a) - Number(b));
     anchor = ids.length ? map.rooms[ids[0]] : null;
   }
-  if (!anchor) return { rooms: [], exits: [] };
+  if (!anchor) return { rooms: [], exits: [], tints: [], regions: [], scale };
   const z = viewedZ != null ? viewedZ : anchor.coords.z;
 
   const pathRooms = path && path.rooms ? path.rooms : null;
@@ -40,8 +49,14 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       isCurrent: cur != null && id === cur.id,
       onPath: pathRooms ? pathRooms.has(id) : false,
       env: r.env,
+      name: r.name || "",
+      fill: fillColor(map, r),
+      glyph: roomGlyph(r),
+      region: r.region || null,
     });
   }
+
+  const { tints, regions } = regionLayout(map, rooms, viewArea, z, anchor, cx, cy, scale);
 
   const exits = [];
   const seen = new Set();
@@ -65,21 +80,68 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
     }
   }
 
-  return { rooms, exits };
+  return { rooms, exits, tints, regions, scale };
 }
 
-export function envColor(env) {
-  // Coerce to string defensively: Discworld sends terrain as a number and the
-  // Lua boundary now stringifies it, but guard here too so a stale stored map
-  // with a numeric env still hashes correctly rather than silently going grey.
-  const s = String(env == null ? "" : env);
-  if (!s) return "#888888";
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xffffff;
-  const r = 80 + (h & 0x7f);
-  const g = 80 + ((h >> 7) & 0x7f);
-  const b = 80 + ((h >> 14) & 0x7f);
-  return "#" + [r, g, b].map((n) => n.toString(16).padStart(2, "0")).join("");
+// Region tints and labels. A tint is a cell under each room in a region, plus
+// the one empty cell between two rooms of the same region two cells apart (a
+// layout that spaces rooms out, like a ring with a node every other cell,
+// still reads as one patch). Rooms of a region within two cells of each other
+// form a cluster, labelled once, centred over it and just above its top row —
+// so a region split by the view or by a ring's seam gets a label per piece.
+function regionLayout(map, rooms, areaId, z, anchor, cx, cy, scale) {
+  const tints = [], regions = [];
+  const inRegion = rooms.filter((r) => r.region);
+  if (inRegion.length === 0) return { tints, regions };
+  const cell = (r) => map.rooms[r.id].coords;
+  const occupied = new Set();
+  for (const id of Object.keys(map.rooms)) {
+    const r = map.rooms[id];
+    if (r.areaId === areaId && r.coords.z === z) occupied.add(`${r.coords.x},${r.coords.y}`);
+  }
+  const at = new Map(inRegion.map((r) => [`${cell(r).x},${cell(r).y}`, r]));
+  const toPx = (x, y) => ({ px: cx + (x - anchor.coords.x) * scale, py: cy + (y - anchor.coords.y) * scale });
+
+  // One tint per cell, even where two rooms share it.
+  const tinted = new Set();
+  const tint = (t) => {
+    const k = `${t.px},${t.py}`;
+    if (!tinted.has(k)) { tinted.add(k); tints.push(t); }
+  };
+  for (const r of inRegion) {
+    tint({ px: r.px, py: r.py, region: r.region });
+    const { x, y } = cell(r);
+    for (const [dx, dy] of [[2, 0], [0, 2]]) {
+      const other = at.get(`${x + dx},${y + dy}`);
+      const mid = `${x + dx / 2},${y + dy / 2}`;
+      if (other && other.region === r.region && !occupied.has(mid)) {
+        tint({ ...toPx(x + dx / 2, y + dy / 2), region: r.region });
+      }
+    }
+  }
+
+  const seen = new Set();
+  for (const start of inRegion) {
+    if (seen.has(start.id)) continue;
+    seen.add(start.id);
+    const group = [start];
+    for (let i = 0; i < group.length; i++) {
+      const a = cell(group[i]);
+      for (const b of inRegion) {
+        if (seen.has(b.id) || b.region !== start.region) continue;
+        const c = cell(b);
+        if (Math.abs(a.x - c.x) <= 2 && Math.abs(a.y - c.y) <= 2) { seen.add(b.id); group.push(b); }
+      }
+    }
+    const xs = group.map((r) => r.px);
+    regions.push({
+      key: start.region,
+      name: regionName(map, map.rooms[start.id]),
+      x: (Math.min(...xs) + Math.max(...xs)) / 2,
+      top: Math.min(...group.map((r) => r.py)),
+    });
+  }
+  return { tints, regions };
 }
 
 // Canvas colours can't reference CSS variables, so the host theme is threaded
@@ -93,11 +155,21 @@ export const DEFAULT_COLORS = {
   roomStroke: "#1f2937",   // plain room border (→ --border)
   roomPath: "#38bdf8",     // room on the highlighted route (→ --accent)
   current: "#facc15",      // the room you're standing in
+  label: "#e5e7eb",        // room and region names (→ --fg)
+  halo: "#0b0e14",         // outline behind names, for legibility (→ --bg)
 };
 
-export function draw(ctx, layout, { roomSize, colors }) {
+export function draw(ctx, layout, { roomSize, colors, labels = true }) {
   const c = { ...DEFAULT_COLORS, ...(colors || {}) };
   const half = roomSize / 2;
+  const scale = layout.scale || roomSize * 2;
+
+  // Region tints first: a faint full cell under each room, so a region's
+  // neighbouring rooms join into one patch beneath the exits.
+  for (const t of layout.tints || []) {
+    ctx.fillStyle = regionColor(t.region, 0.18);
+    ctx.fillRect(t.px - scale / 2, t.py - scale / 2, scale, scale);
+  }
   for (const e of layout.exits) {
     ctx.beginPath();
     ctx.moveTo(e.x1, e.y1);
@@ -107,11 +179,60 @@ export function draw(ctx, layout, { roomSize, colors }) {
     ctx.stroke();
   }
   for (const r of layout.rooms) {
-    ctx.fillStyle = envColor(r.env);
+    ctx.fillStyle = r.fill || envColor(r.env);
     ctx.fillRect(r.px - half, r.py - half, roomSize, roomSize);
     if (r.isCurrent) { ctx.strokeStyle = c.current; ctx.lineWidth = 3; }
     else if (r.onPath) { ctx.strokeStyle = c.roomPath; ctx.lineWidth = 2; }
     else { ctx.strokeStyle = c.roomStroke; ctx.lineWidth = 1; }
     ctx.strokeRect(r.px - half, r.py - half, roomSize, roomSize);
+    if (r.glyph && roomSize >= GLYPH_MIN_ROOM) {
+      ctx.fillStyle = inkOn(r.fill);
+      ctx.font = `bold ${Math.round(roomSize * 0.62)}px system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(r.glyph, r.px, r.py + 1);
+    }
   }
+  if (!labels) return;
+
+  if (scale >= NAME_LABEL_MIN_SCALE) {
+    ctx.font = "10px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    for (const r of layout.rooms) {
+      if (!r.name) continue;
+      haloText(ctx, fitText(ctx, r.name, scale - 4), r.px, r.py + half + 2, c);
+    }
+  }
+  if (scale >= REGION_LABEL_MIN_SCALE) {
+    ctx.font = "bold 11px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    // Skip a region label that would overlap one already drawn.
+    const drawn = [];
+    for (const g of layout.regions || []) {
+      if (!g.name) continue;
+      const w = ctx.measureText(g.name).width, y = g.top - scale / 2 + 2;
+      const box = { l: g.x - w / 2 - 4, r: g.x + w / 2 + 4, t: y - 13, b: y };
+      if (drawn.some((d) => box.l < d.r && box.r > d.l && box.t < d.b && box.b > d.t)) continue;
+      drawn.push(box);
+      haloText(ctx, g.name, g.x, y, c);
+    }
+  }
+}
+
+function haloText(ctx, text, x, y, c) {
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = c.halo;
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = c.label;
+  ctx.fillText(text, x, y);
+}
+
+// Truncate to fit `max` px with an ellipsis.
+export function fitText(ctx, text, max) {
+  if (ctx.measureText(text).width <= max) return text;
+  let s = text;
+  while (s.length > 1 && ctx.measureText(s + "…").width > max) s = s.slice(0, -1);
+  return s + "…";
 }

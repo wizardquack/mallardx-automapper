@@ -31,6 +31,7 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
     existing.name = seen.name || existing.name;
     existing.env = seen.env || existing.env;
     refreshAreaName(map, existing, seen);
+    refreshAnnotations(map, existing, seen);
     // Server coordinates win, even over where the room was placed before.
     if (seen.coords) placeAtServerCoords(map, existing, seen.coords);
     // Record the traversed edge even when the destination already exists —
@@ -57,12 +58,32 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
   }
 
   const room = addRoom(map, { key: seen.key, name: seen.name, env: seen.env, coords, areaId });
+  refreshAnnotations(map, room, seen);
   if (seen.coords) placeAtServerCoords(map, room, seen.coords);
   linkTraversal(map, prev, room, dir, !inferred);
   recordExitKeys(room, seen.exits);
   linkKnownExits(map, room, seen.exits);
   setCurrent(map, room.id);
   return { room, created: true };
+}
+
+// The server's tags and region for a room, where the frame has them: a tags
+// list replaces the room's (an empty one clears it), a region is set and its
+// name recorded on the area. A frame without them leaves the room alone. The
+// user's colour, symbol and note are never touched here.
+function refreshAnnotations(map, room, seen) {
+  if (Array.isArray(seen.tags)) {
+    if (seen.tags.length) room.tags = seen.tags.slice();
+    else delete room.tags;
+  }
+  if (seen.region) {
+    room.region = seen.region;
+    const area = room.areaId != null ? map.areas[room.areaId] : null;
+    if (area) {
+      area.regions = area.regions || {};
+      area.regions[seen.region] = seen.regionName || area.regions[seen.region] || seen.region;
+    }
+  }
 }
 
 // Put a room at the cell the server says it's in, and mark it so. A room

@@ -53,5 +53,42 @@ check("room.info no exits", r.exits, nil)
 check("no coords → nil", roomframe.normalize({ id = "x" }, false).coords, nil)
 check("no key → nil", roomframe.normalize({ name = "x" }, true), nil)
 
+-- tags: mudstd `tags`, else IRE `details`; non-strings dropped; numbers kept.
+r = roomframe.normalize({ id = "m", tags = { "market", "", 7, {} } }, true)
+check("tags kept", r.tags and r.tags[1], "market")
+check("tags number stringified", r.tags and r.tags[2], "7")
+check("tags junk dropped", r.tags and #r.tags, 2)
+r = roomframe.normalize({ num = 1, details = { "shop", "bank" } }, false)
+check("IRE details as tags", r.tags and r.tags[2], "bank")
+r = roomframe.normalize({ id = "t", tags = { "lift" }, details = { "shop" } }, true)
+check("tags win over details", r.tags and r.tags[1], "lift")
+check("no tags → nil", roomframe.normalize({ id = "x" }, true).tags, nil)
+check("empty tags stay empty", #roomframe.normalize({ id = "x", tags = {} }, true).tags, 0)
+
+-- region / regionName.
+r = roomframe.normalize({ id = "c", region = "concourse", regionName = "the Concourse" }, true)
+check("region", r.region, "concourse")
+check("regionName", r.regionName, "the Concourse")
+check("no region", roomframe.normalize({ id = "x" }, true).region, nil)
+check("empty region → nil", roomframe.normalize({ id = "x", region = "" }, true).region, nil)
+
+-- terrain id passes through as env (as before).
+check("terrain → env", roomframe.normalize({ id = "x", terrain = "corridor" }, true).env, "corridor")
+
+-- mudstd.room.terrain definitions.
+local ts = roomframe.terrains({
+  { id = "city", label = "City", color = "C0C0C0" },
+  { id = "forest", color = "#00ff00", tile_url = "x" },
+  { id = "bad", label = "Bad", color = "red" },
+  { label = "no id" },
+  "junk",
+})
+check("terrains count", #ts, 3)
+check("terrain color normalized", ts[1].color, "#c0c0c0")
+check("terrain label fallback", ts[2].label, "forest")
+check("terrain # accepted", ts[2].color, "#00ff00")
+check("terrain bad color dropped", ts[3].color, nil)
+check("terrains non-table", #roomframe.terrains("x"), 0)
+
 if failures > 0 then os.exit(1) end
 io.write("\nall roomframe tests passed\n")

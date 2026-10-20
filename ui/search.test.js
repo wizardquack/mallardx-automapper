@@ -67,3 +67,16 @@ describe("resolveDestination", () => {
     expect(resolveDestination(m, s.id, "nowhere")).toEqual({ roomId: null, candidates: [] });
   });
 });
+
+describe("matchRooms: notes and tags", () => {
+  it("finds rooms by a tag or a word of their note", () => {
+    const m = createMap();
+    const hall = addRoom(m, { key: "h", name: "Market Hall" });
+    hall.tags = ["market"];
+    const bay = addRoom(m, { key: "b", name: "Outfitter's Bay" });
+    bay.tags = ["outfitter"]; bay.note = "sells mining lasers";
+    expect(matchRooms(m, "outfit").map((r) => r.id)).toEqual([bay.id]);
+    expect(matchRooms(m, "LASER").map((r) => r.id)).toEqual([bay.id]);
+    expect(matchRooms(m, "market").map((r) => r.id)).toEqual([hall.id]);
+  });
+});

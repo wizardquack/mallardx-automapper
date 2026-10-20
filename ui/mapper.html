@@ -12,6 +12,8 @@
     <span class="spacer"></span>
     <button class="z-down" type="button" title="Down a floor">▼</button>
     <button class="z-up"   type="button" title="Up a floor">▲</button>
+    <button class="labels-toggle" type="button" title="Show room and region names">Aa</button>
+    <button class="legend-toggle" type="button" title="Legend">?</button>
     <button class="recenter" type="button" title="Recenter on me">⌖</button>
     <button class="zoom-out" type="button" title="Zoom out">−</button>
     <button class="zoom-in"  type="button" title="Zoom in">+</button>
@@ -22,6 +24,7 @@
   </div>
   <div class="canvas-wrap">
     <canvas class="map-canvas"></canvas>
+    <div class="legend" hidden></div>
     <div class="pocket-bar" hidden>
       <span class="pocket-bar-label">Move highlighted rooms to area?</span>
       <button class="pocket-confirm">Move</button>

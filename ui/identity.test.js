@@ -327,3 +327,27 @@ describe("resolveRoomSeen — areaName on revisits", () => {
   });
 });
 
+
+describe("resolveRoomSeen: server annotations", () => {
+  it("replaces tags on revisit, clears them on an empty list, keeps them when absent", () => {
+    const m = createMap();
+    resolveRoomSeen(m, { key: "A", tags: ["market"] }, null);
+    const r = getRoomByKey(m, "A");
+    resolveRoomSeen(m, { key: "A", tags: ["market", "charger"] }, null);
+    expect(r.tags).toEqual(["market", "charger"]);
+    resolveRoomSeen(m, { key: "A" }, null);
+    expect(r.tags).toEqual(["market", "charger"]);
+    resolveRoomSeen(m, { key: "A", tags: [] }, null);
+    expect(r.tags).toBeUndefined();
+  });
+
+  it("follows a region and its renamed label, and leaves user annotations alone", () => {
+    const m = createMap();
+    resolveRoomSeen(m, { key: "A", areaTag: "tiss", areaField: "area", region: "docks", regionName: "Docks" }, null);
+    const r = getRoomByKey(m, "A");
+    r.color = "#ff0000"; r.symbol = "X"; r.note = "mine";
+    resolveRoomSeen(m, { key: "A", areaTag: "tiss", areaField: "area", region: "docks", regionName: "the Docks", tags: ["berth"] }, null);
+    expect(getArea(m, r.areaId).regions).toEqual({ docks: "the Docks" });
+    expect(r).toMatchObject({ color: "#ff0000", symbol: "X", note: "mine", tags: ["berth"] });
+  });
+});

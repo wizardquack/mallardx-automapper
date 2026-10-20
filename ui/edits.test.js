@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { createMap, addRoom, linkExit, setCurrent, getRoom } from "./graph.js";
 import {
   renameRoom, deleteRoom, mergeRooms, addExit, deleteExit, setOneWay,
+  setRoomColor, setRoomSymbol, setRoomNote,
   isCellOccupied, freeCell, moveRoom, moveToArea, computePocket, movePocket,
 } from "./edits.js";
 
@@ -248,5 +249,48 @@ describe("movePocket", () => {
   it("returns false for an empty id list", () => {
     const m = createMap();
     expect(movePocket(m, [], "2")).toBe(false);
+  });
+});
+
+describe("annotation edits", () => {
+  it("sets and clears a colour, reporting no-ops", () => {
+    const m = createMap();
+    const r = addRoom(m, { key: "r" });
+    expect(setRoomColor(m, r.id, "#3aa8a0")).toBe(true);
+    expect(r.color).toBe("#3aa8a0");
+    expect(setRoomColor(m, r.id, "#3aa8a0")).toBe(false);
+    expect(setRoomColor(m, r.id, "")).toBe(true);
+    expect("color" in r).toBe(false);
+    expect(setRoomColor(m, "nope", "#000000")).toBe(false);
+  });
+
+  it("keeps a symbol to two characters, counting code points", () => {
+    const m = createMap();
+    const r = addRoom(m, { key: "r" });
+    setRoomSymbol(m, r.id, " ABC ");
+    expect(r.symbol).toBe("AB");
+    setRoomSymbol(m, r.id, "★✓x");
+    expect(r.symbol).toBe("★✓");
+    setRoomSymbol(m, r.id, "");
+    expect("symbol" in r).toBe(false);
+  });
+
+  it("sets a trimmed note and clears an empty one", () => {
+    const m = createMap();
+    const r = addRoom(m, { key: "r" });
+    expect(setRoomNote(m, r.id, "  shopkeeper buys ore ")).toBe(true);
+    expect(r.note).toBe("shopkeeper buys ore");
+    expect(setRoomNote(m, r.id, "   ")).toBe(true);
+    expect("note" in r).toBe(false);
+  });
+
+  it("merge adopts the source's annotations where the target has none", () => {
+    const m = createMap();
+    const t = addRoom(m, { key: "t", env: "" });
+    const s = addRoom(m, { key: "s", env: "corridor" });
+    t.color = "#111111";
+    Object.assign(s, { color: "#222222", symbol: "S", note: "n", tags: ["market"], region: "docks" });
+    mergeRooms(m, s.id, t.id);
+    expect(t).toMatchObject({ env: "corridor", color: "#111111", symbol: "S", note: "n", tags: ["market"], region: "docks" });
   });
 });

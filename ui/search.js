@@ -8,7 +8,11 @@ export function matchRooms(map, query) {
   const out = [];
   for (const id of Object.keys(map.rooms)) {
     const r = map.rooms[id];
-    if ((r.name || "").toLowerCase().includes(q)) out.push(r);
+    // A room's name, its note, or one of its tags ("market" finds the Market Hall).
+    const tags = Array.isArray(r.tags) ? r.tags : [];
+    if ((r.name || "").toLowerCase().includes(q)
+      || (r.note || "").toLowerCase().includes(q)
+      || tags.some((t) => String(t).toLowerCase().includes(q))) out.push(r);
   }
   return out;
 }

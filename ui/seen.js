@@ -18,7 +18,37 @@ export function seenFromFrame(frame) {
     // Server-sent grid position ({ x, y, z }), already normalized by the
     // adapter; re-checked here so a malformed one can't place a room at NaN.
     coords: validCoords(frame.coords),
+    // What's here and which part of the area (extensions; IRE `details` arrive
+    // as tags). A Lua empty list may come through as {}: that's no tags.
+    tags: validTags(frame.tags),
+    region: nonEmpty(frame.region),
+    regionName: nonEmpty(frame.regionName),
   };
+}
+
+function nonEmpty(v) {
+  return typeof v === "string" && v ? v : undefined;
+}
+
+function validTags(t) {
+  if (Array.isArray(t)) return t.filter((x) => typeof x === "string" && x);
+  if (t && typeof t === "object" && Object.keys(t).length === 0) return [];
+  return undefined;
+}
+
+// mudstd.room.terrain's list, as the adapter normalized it, → the map's
+// { [id]: { label, color } }. Malformed entries are skipped.
+export function terrainsFromFrame(frame) {
+  const out = {};
+  const list = frame && Array.isArray(frame.list) ? frame.list : [];
+  for (const t of list) {
+    if (!t || typeof t.id !== "string" || !t.id) continue;
+    out[t.id] = {
+      label: typeof t.label === "string" && t.label ? t.label : t.id,
+      color: typeof t.color === "string" && /^#[0-9a-f]{6}$/i.test(t.color) ? t.color.toLowerCase() : null,
+    };
+  }
+  return out;
 }
 
 export function validCoords(c) {

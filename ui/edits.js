@@ -12,6 +12,31 @@ export function renameRoom(map, id, name) {
   return true;
 }
 
+// User annotations. Each clears its field when given an empty value; a no-op
+// (same value) returns false so applyEdit doesn't push an undo step.
+function setField(map, id, field, value) {
+  const r = map.rooms[id];
+  if (!r) return false;
+  const v = value == null ? "" : String(value);
+  if ((r[field] || "") === v) return false;
+  if (v) r[field] = v; else delete r[field];
+  return true;
+}
+
+export function setRoomColor(map, id, color) {
+  return setField(map, id, "color", color);
+}
+
+// One or two characters (by code point, so ★ or an emoji counts as one).
+export function setRoomSymbol(map, id, symbol) {
+  const s = Array.from(String(symbol == null ? "" : symbol).trim()).slice(0, 2).join("");
+  return setField(map, id, "symbol", s);
+}
+
+export function setRoomNote(map, id, note) {
+  return setField(map, id, "note", String(note == null ? "" : note).trim());
+}
+
 export function deleteRoom(map, id) {
   const r = map.rooms[id];
   if (!r) return false;
@@ -43,6 +68,11 @@ export function mergeRooms(map, sourceId, targetId) {
     for (const dir of Object.keys(ex)) {
       if (ex[dir].to === sourceId) ex[dir].to = targetId;
     }
+  }
+  // Annotations: the target keeps its own, adopting the source's where it has none.
+  for (const f of ["env", "tags", "region", "color", "symbol", "note"]) {
+    const has = Array.isArray(tgt[f]) ? tgt[f].length > 0 : !!tgt[f];
+    if (!has && src[f] != null && src[f] !== "") tgt[f] = Array.isArray(src[f]) ? src[f].slice() : src[f];
   }
   // Key migration: target keeps its key; adopt source key only if target has none.
   if (src.key != null && map.keyIndex[src.key] === sourceId) delete map.keyIndex[src.key];

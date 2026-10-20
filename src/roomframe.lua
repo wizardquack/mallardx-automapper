@@ -39,6 +39,49 @@ function M.coords(c)
   return { x = x, y = y, z = z }
 end
 
+local function str(v)
+  if type(v) == "string" and v ~= "" then return v end
+  if type(v) == "number" then return tostring(v) end
+  return nil
+end
+
+-- A room's features (mudstd extension `tags`, else IRE's `details`): a list of
+-- non-empty strings, or nil when there's no list. An empty list stays empty,
+-- so a room that lost its last tag is cleared.
+function M.tags(data)
+  local list = data.tags
+  if type(list) ~= "table" then list = data.details end
+  if type(list) ~= "table" then return nil end
+  local out = {}
+  for _, t in ipairs(list) do
+    local s = str(t)
+    if s then out[#out + 1] = s end
+  end
+  return out
+end
+
+-- mudstd.room.terrain: a list of { id, label, color?, tile_url? } -> a list of
+-- { id, label, color } with color as "#rrggbb" or nil. Entries without an id
+-- are dropped; a missing label falls back to the id.
+function M.terrains(data)
+  if type(data) ~= "table" then return {} end
+  local out = {}
+  for _, t in ipairs(data) do
+    if type(t) == "table" then
+      local id = str(t.id)
+      if id then
+        local color = nil
+        if type(t.color) == "string" then
+          local hex = t.color:match("^#?(%x%x%x%x%x%x)$")
+          if hex then color = "#" .. hex:lower() end
+        end
+        out[#out + 1] = { id = id, label = str(t.label) or id, color = color }
+      end
+    end
+  end
+  return out
+end
+
 -- Normalize a GMCP room payload into the engine's room_seen shape. Handles both
 -- the generic `room.info` package (Discworld/IRE — `identifier`, exits derived
 -- from movement) and the mudstandards `mudstd.room.info` package (string `id`,
@@ -60,6 +103,10 @@ function M.normalize(data, with_exits)
     -- Strings and numbers only: a JSON null may arrive as a userdata sentinel.
     areaName = (type(data.areaName) == "string" or type(data.areaName) == "number")
       and tostring(data.areaName) or nil,
+    -- What's here, and the part of the area it's in (extensions).
+    tags = M.tags(data),
+    region = str(data.region),
+    regionName = str(data.regionName),
   }
   if with_exits then room.exits = movement.exits(data.exits) end
   return room

@@ -11,6 +11,7 @@ local roomsource = require("roomsource")
 
 local panel = mud.panel("map")
 local last_room = nil  -- replayed to the iframe on (re)mount
+local last_terrains = nil  -- likewise the last mudstd.room.terrain list
 local learn_handle = nil  -- catch-all trigger handle while '/map learn' is on
 
 -- room.info → normalized room_seen. `identifier` is the stable room key.
@@ -31,6 +32,13 @@ gmcp.on("mudstd.room.info", function(_pkg, data)
   roomsource.accept("mudstd.room.info")   -- only a usable frame flips the session
   last_room = room
   panel:post("room_seen", last_room)
+end)
+
+-- mudstd.room.terrain: the server's terrain definitions (label + colour), which
+-- room frames' `terrain` refers to by id. Sent once per connect or area change.
+gmcp.on("mudstd.room.terrain", function(_pkg, data)
+  last_terrains = roomframe.terrains(data)
+  panel:post("terrains", { list = last_terrains })
 end)
 
 -- A new session may be a different server: forget that the last one sent
@@ -150,6 +158,7 @@ panel:on_message("ready", function()
     cfg = area_cfg(),
     walk = walk_cfg(),
   })
+  if last_terrains then panel:post("terrains", { list = last_terrains }) end
   if last_room then panel:post("room_seen", last_room) end
 end)
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   createMap, addRoom, getRoom, getRoomByKey, linkExit,
-  setCurrent, currentRoom, toJSON, fromJSON,
+  setCurrent, currentRoom, toJSON, fromJSON, setTerrains,
   addArea, getArea, getAreaByKey, listAreas,
 } from "./graph.js";
 
@@ -120,5 +120,22 @@ describe("graph", () => {
     expect(getAreaByKey(restored, "__overworld__").label).toBe("Overworld");
     expect(getRoom(restored, r.id).areaId).toBe(area.id);
     expect(restored.currentId).toBe(r.id);
+  });
+});
+
+describe("terrains", () => {
+  it("merges definitions, reports change, and survives a round-trip", () => {
+    const m = createMap();
+    expect(m.terrains).toEqual({});
+    expect(setTerrains(m, { city: { label: "City", color: "#c0c0c0" } })).toBe(true);
+    expect(setTerrains(m, { city: { label: "City", color: "#c0c0c0" } })).toBe(false);
+    expect(setTerrains(m, { forest: { label: "Forest", color: null } })).toBe(true);
+    expect(Object.keys(m.terrains)).toEqual(["city", "forest"]);
+    expect(fromJSON(toJSON(m)).terrains).toEqual(m.terrains);
+  });
+
+  it("loads an older save without terrains as none", () => {
+    const old = JSON.stringify({ version: 2, rooms: {}, areas: {} });
+    expect(fromJSON(old).terrains).toEqual({});
   });
 });

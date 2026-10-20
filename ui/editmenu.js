@@ -4,6 +4,19 @@
 //   { label?, danger?, separator?, header?, disabled?, submenu?, action?, arg? }
 
 import { ALL_DIRECTIONS, reverse } from "./directions.js";
+import { SWATCHES } from "./annotate.js";
+
+function colorSubmenu(room) {
+  const nodes = SWATCHES.map(([name, hex]) => ({
+    label: room.color === hex ? `✓ ${name}` : name,
+    action: "setColor",
+    arg: hex,
+  }));
+  nodes.push({ separator: true });
+  nodes.push({ label: "Custom…", action: "setColorCustom" });
+  nodes.push({ label: "Clear", action: "setColor", arg: "", disabled: !room.color });
+  return nodes;
+}
 
 function exitsSubmenu(map, room) {
   const nodes = [];
@@ -55,6 +68,9 @@ export function roomMenuModel(map, id, areas) {
   return [
     { label: room.name || `#${id}`, header: true },
     { label: "Rename…", action: "rename" },
+    { label: "Colour", submenu: colorSubmenu(room) },
+    { label: room.symbol ? `Symbol (${room.symbol})…` : "Symbol…", action: "setSymbol" },
+    { label: room.note ? "Edit note…" : "Add note…", action: "setNote" },
     { label: "Set as current", action: "setCurrent" },
     { label: "Merge into…", action: "merge" },
     { label: "Exits", submenu: exitsSubmenu(map, room) },

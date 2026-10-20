@@ -69,3 +69,30 @@ describe("roomMenuModel", () => {
     expect(move.some((n) => n.arg === "__new__")).toBe(true);
   });
 });
+
+describe("roomMenuModel: annotations", () => {
+  it("offers Colour swatches, Custom and Clear, ticking the current one", () => {
+    const m = createMap();
+    const r = addRoom(m, { key: "r", name: "Hall" });
+    let colour = find(roomMenuModel(m, r.id, []), "Colour");
+    expect(colour.submenu[0]).toMatchObject({ label: "Red", action: "setColor", arg: "#d9534f" });
+    expect(find(colour.submenu, "Custom…").action).toBe("setColorCustom");
+    expect(find(colour.submenu, "Clear")).toMatchObject({ action: "setColor", arg: "", disabled: true });
+    r.color = "#d9534f";
+    colour = find(roomMenuModel(m, r.id, []), "Colour");
+    expect(colour.submenu[0].label).toBe("✓ Red");
+    expect(find(colour.submenu, "Clear").disabled).toBe(false);
+  });
+
+  it("labels Symbol and Note by whether the room has one", () => {
+    const m = createMap();
+    const r = addRoom(m, { key: "r", name: "Hall" });
+    let ls = labels(roomMenuModel(m, r.id, []));
+    expect(ls).toContain("Symbol…");
+    expect(ls).toContain("Add note…");
+    r.symbol = "$"; r.note = "x";
+    ls = labels(roomMenuModel(m, r.id, []));
+    expect(ls).toContain("Symbol ($)…");
+    expect(ls).toContain("Edit note…");
+  });
+});

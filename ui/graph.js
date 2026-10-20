@@ -14,6 +14,8 @@ export function createMap() {
     nextId: 1,
     nextAreaId: 1,
     currentId: null,
+    // mudstd.room.terrain definitions: { [id]: { label, color } }.
+    terrains: {},
   };
 }
 
@@ -22,6 +24,9 @@ export function createMap() {
 //   exitKeys     — { [dir]: targetKey }, the exits the room last reported by key.
 //   serverCoords — true once the server has placed the room by coordinates;
 //                  such a room isn't displaced by another the server places.
+//   tags, region — the server's features and part-of-area key (annotate.js).
+// and fields only the user sets (edits.js): color, symbol, note.
+// Areas may carry `regions` — { [regionKey]: name }.
 export function addRoom(map, { key, fp, name, env, coords, areaId }) {
   const id = String(map.nextId++);
   const room = {
@@ -62,6 +67,20 @@ export function setCurrent(map, id) {
 
 export function currentRoom(map) {
   return map.currentId != null ? map.rooms[map.currentId] || null : null;
+}
+
+// Merge mudstd.room.terrain definitions into the map. True if anything changed.
+export function setTerrains(map, defs) {
+  map.terrains = map.terrains || {};
+  let changed = false;
+  for (const id of Object.keys(defs || {})) {
+    const cur = map.terrains[id], next = defs[id];
+    if (!cur || cur.label !== next.label || cur.color !== next.color) {
+      map.terrains[id] = { label: next.label, color: next.color };
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 // ── Areas ───────────────────────────────────────────────────────────────────
@@ -109,6 +128,7 @@ export function fromJSON(str) {
         nextId: parsed.nextId || 1,
         nextAreaId: parsed.nextAreaId || 1,
         currentId: parsed.currentId ?? null,
+        terrains: parsed.terrains || {},
       };
     }
     if (parsed.version === 1) return migrateV1(parsed);
