@@ -22,7 +22,8 @@ richer frame.
   you arrived in. So rooms take their shape on any mudstd server without
   typing compass words.
 - **`coords`** (extension) — `{x, y, z}`, the room's place in the server's own
-  layout (also accepted as an `[x, y, z]` array on `room.info`). A room that
+  layout (also accepted as an `[x, y, z]` array on `room.info`), with east +x,
+  north +y and up +z. A room that
   arrives with coords is placed there, and moved there if the mapper had put
   it somewhere else; any room the server didn't place that sat in that cell
   is moved aside. Without coords, rooms are placed by movement as usual.

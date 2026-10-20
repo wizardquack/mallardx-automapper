@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createMap, getRoomByKey, currentRoom, getRoom, getArea } from "./graph.js";
 import { resolveRoomSeen } from "./identity.js";
+import { vector } from "./directions.js";
 
 describe("resolveRoomSeen", () => {
   it("creates the first room at origin with no link", () => {
@@ -248,11 +249,19 @@ describe("resolveRoomSeen — direction inferred from exits", () => {
 });
 
 describe("resolveRoomSeen — server coordinates", () => {
+  it("reads server +y as north, so a room the server puts north is drawn north", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "A", coords: { x: 0, y: 0, z: 0 } }, null).room;
+    const b = resolveRoomSeen(m, { key: "B", name: "B", coords: { x: 0, y: 1, z: 0 } }, "n").room;
+    const v = vector("n");
+    expect(b.coords).toEqual({ x: a.coords.x + v.dx, y: a.coords.y + v.dy, z: 0 });
+  });
+
   it("places a new room at its server coords, ignoring the movement vector", () => {
     const m = createMap();
     resolveRoomSeen(m, { key: "A", name: "A", coords: { x: 5, y: 2, z: 0 } }, null);
     const b = resolveRoomSeen(m, { key: "B", name: "B", coords: { x: 9, y: 9, z: 1 } }, "n").room;
-    expect(b.coords).toEqual({ x: 9, y: 9, z: 1 });
+    expect(b.coords).toEqual({ x: 9, y: -9, z: 1 });
     expect(b.serverCoords).toBe(true);
   });
 
@@ -262,17 +271,17 @@ describe("resolveRoomSeen — server coordinates", () => {
     const b = resolveRoomSeen(m, { key: "B", name: "B" }, "e").room;
     expect(b.coords).toEqual({ x: 1, y: 0, z: 0 });
     resolveRoomSeen(m, { key: "B", name: "B", coords: { x: 4, y: -3, z: 0 } }, null);
-    expect(b.coords).toEqual({ x: 4, y: -3, z: 0 });
+    expect(b.coords).toEqual({ x: 4, y: 3, z: 0 });
   });
 
   it("without coords, placement is unchanged (and a server-placed room stays put)", () => {
     const m = createMap();
     const a = resolveRoomSeen(m, { key: "A", name: "A", coords: { x: 3, y: 3, z: 0 } }, null).room;
     const b = resolveRoomSeen(m, { key: "B", name: "B" }, "s").room;
-    expect(b.coords).toEqual({ x: 3, y: 4, z: 0 });
+    expect(b.coords).toEqual({ x: 3, y: -2, z: 0 });
     expect(b.serverCoords).toBeUndefined();
     resolveRoomSeen(m, { key: "A", name: "A" }, "n");
-    expect(a.coords).toEqual({ x: 3, y: 3, z: 0 });
+    expect(a.coords).toEqual({ x: 3, y: -3, z: 0 });
   });
 
   it("re-places a room it displaces that the server didn't place", () => {
@@ -288,7 +297,7 @@ describe("resolveRoomSeen — server coordinates", () => {
     const m = createMap();
     const a = resolveRoomSeen(m, { key: "A", name: "A", coords: { x: 2, y: 2, z: 0 } }, null).room;
     resolveRoomSeen(m, { key: "B", name: "B", coords: { x: 2, y: 2, z: 0 } }, null);
-    expect(a.coords).toEqual({ x: 2, y: 2, z: 0 });
+    expect(a.coords).toEqual({ x: 2, y: -2, z: 0 });
   });
 
   it("only displaces rooms in the same area", () => {

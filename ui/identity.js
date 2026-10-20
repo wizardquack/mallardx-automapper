@@ -45,7 +45,7 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
   const areaId = resolveArea(map, seen, prev, cfg || {});
   let coords;
   if (seen.coords) {
-    coords = seen.coords;   // and claimed below, displacing an unplaced occupant
+    coords = fromServer(seen.coords);   // and claimed below, displacing an unplaced occupant
   } else if (prev && prev.areaId === areaId && dir && isCompass(dir)) {
     const v = vector(dir);
     coords = { x: prev.coords.x + v.dx, y: prev.coords.y + v.dy, z: prev.coords.z + v.dz };
@@ -69,8 +69,9 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
 // already in that cell of the area that the server didn't place is moved to
 // the area's first free cell; one the server did place stays (two rooms the
 // server puts in one cell is the server's call).
-function placeAtServerCoords(map, room, c) {
-  room.coords = { x: c.x, y: c.y, z: c.z };
+function placeAtServerCoords(map, room, sc) {
+  const c = fromServer(sc);
+  room.coords = c;
   room.serverCoords = true;
   for (const id of Object.keys(map.rooms)) {
     const other = map.rooms[id];
@@ -79,6 +80,12 @@ function placeAtServerCoords(map, room, c) {
       other.coords = firstFreeCell(map, room.areaId);
     }
   }
+}
+
+// Server coords have north as +y (the usual map convention); the grid has
+// north as -y (directions.js), so y is flipped. `0 - y` keeps 0 as +0.
+function fromServer(c) {
+  return { x: c.x, y: 0 - c.y, z: c.z };
 }
 
 // Which of prev's exits leads to the room keyed `key`? First from the exits
