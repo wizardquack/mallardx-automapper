@@ -1,6 +1,6 @@
 id = "net.mallard.automapper"
 name = "Automapper"
-version = "0.5.0"
+version = "0.5.1"
 description = "Universal automapper: builds a live map as you walk — GMCP mudstd.room (preferred; honours server coords and area names) or room.info, or name+exits capture on MUDs without GMCP."
 language = "lua"
 entry = "src/main.lua"
