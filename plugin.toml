@@ -1,6 +1,6 @@
 id = "net.mallard.automapper"
 name = "Automapper"
-version = "0.5.1"
+version = "0.6.0"
 description = "Universal automapper: builds a live map as you walk — GMCP mudstd.room (preferred; honours server coords and area names) or room.info, or name+exits capture on MUDs without GMCP."
 language = "lua"
 entry = "src/main.lua"
@@ -12,10 +12,11 @@ license = "MIT"
 [permissions]
 # room.info drives zero-config mapping on Discworld/IRE-style MUDs;
 # mudstd.room.info is the mudstandards.org room package (string ids + explicit
-# exits, plus optional coords/area/areaName extensions) and, once seen in a
-# session, is used instead of room.info. Glob-matched, so "mudstd.room.info"
-# grants exactly that message.
-gmcp_access = ["room.info", "mudstd.room.info"]
+# exits, plus optional coords/area/areaName/tags/region extensions) and, once
+# seen in a session, is used instead of room.info; mudstd.room.terrain defines
+# the terrains its rooms refer to (label + colour). Glob-matched, so
+# "mudstd.room.info" grants exactly that message.
+gmcp_access = ["room.info", "mudstd.room.info", "mudstd.room.terrain"]
 # Phase 2 speedwalk issues movement commands via mud.send (compass dirs, in, out).
 sends = true
 

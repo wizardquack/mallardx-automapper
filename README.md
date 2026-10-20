@@ -32,6 +32,16 @@ richer frame.
 - **`areaName`** (extension) — the area's name, shown in the area picker. If
   it changes, the label follows; `area` stays the key.
 
+- **`terrain`** — the room's terrain id; its label and colour come from
+  `mudstd.room.terrain` (`[{id, label, color}]`), which the mapper keeps with
+  the map.
+- **`tags`** (extension) — what's in the room, as a list of words (`market`,
+  `bank`, `lift`, `charger`…). Well-known ones get a glyph; all show on hover.
+  IRE's `room.info` `details` are read the same way.
+- **`region`** / **`regionName`** (extension) — the part of the area the room
+  is in (a district, a quarter) and what to call it: drawn as a tint behind
+  its rooms, with its name over them.
+
 `in` and `out` are exits with no compass direction: the map stores them, and
 `/goto`, click-to-walk and the speedwalk route through them (sending `in` and
 `out`), but they don't place rooms or draw lines — the room through a hatch
@@ -39,7 +49,8 @@ is placed by its own coords, or the area's first free cell.
 
 ## Status
 
-Phases 1–4 shipped, plus (0.5.0) mudstd preference, server coordinates,
+Phases 1–4 shipped, plus annotations (0.6.0: terrain colours, tags, regions,
+labels, legend, hover cards, your own colours/symbols/notes) and (0.5.0) mudstd preference, server coordinates,
 direction inference, in/out routing and area names: auto-maps and links rooms
 as you move, groups
 spatially-disjoint regions into separate areas (one shown at a time,
@@ -47,6 +58,29 @@ auto-following you), speedwalk/pathfinding (`/goto`, click-to-walk, three pacing
 modes), manual editing, z-levels, and — new in Phase 4 — **non-GMCP capture** so
 the mapper works on MUDs that don't emit `room.info`. The map renders live
 top-down and is persisted per world.
+
+## Annotations (0.6.0)
+
+Rooms are filled by, in order: your own colour; the server's colour for the
+room's terrain; a built-in colour for a well-known terrain word (`forest`,
+`road`, `water`, `indoors`, `corridor`…); a colour hashed from the terrain;
+grey. A glyph marks what's there — your symbol, else the first well-known tag:
+
+| | | | |
+|---|---|---|---|
+| `★` start | `⇅` lift | `$` shop, market | `¤` bank |
+| `+` healer, clinic | `⌂` inn, bunkhouse | `✉` post | `⚑` dock, berth |
+| `ϟ` charger | `⚒` workshop, machines | `▣` freight, storage | `i` terminal, info |
+| `!` quest | `†` trainer, guild | | |
+
+Room names are drawn at the two largest zooms and region names from the
+middle one; **Aa** turns both off. **?** opens a legend of the terrains,
+glyphs and regions in view. Hover a room for its name, region, terrain, tags
+and note. Search matches notes and tags too (`market` finds the market).
+
+Right-click a room for **Colour ▸** (swatches, custom hex, clear),
+**Symbol…** (one or two characters) and **Add note…**. These are yours: the
+server's frames never change them.
 
 ## Non-GMCP MUDs (Phase 4)
 
