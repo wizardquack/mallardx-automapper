@@ -25,7 +25,22 @@ export function seenFromFrame(frame) {
     tags: validTags(frame.tags),
     region: nonEmpty(frame.region),
     regionName: nonEmpty(frame.regionName),
+    // Ways that aren't exits ([{ toKey, name?, cmd? }], extension `links`).
+    links: validLinks(frame.links),
   };
+}
+
+function validLinks(list) {
+  if (list && typeof list === "object" && !Array.isArray(list) && Object.keys(list).length === 0) return [];
+  if (!Array.isArray(list)) return undefined;
+  return list
+    .filter((l) => l && (typeof l.toKey === "string" || typeof l.toKey === "number") && l.toKey !== "")
+    .map((l) => {
+      const out = { toKey: String(l.toKey) };
+      if (nonEmpty(l.name)) out.name = l.name;
+      if (nonEmpty(l.cmd)) out.cmd = l.cmd;
+      return out;
+    });
 }
 
 function nonEmpty(v) {

@@ -60,6 +60,16 @@ check("room.info no exits", r.exits, nil)
 check("no coords → nil", roomframe.normalize({ id = "x" }, false).coords, nil)
 check("no key → nil", roomframe.normalize({ name = "x" }, true), nil)
 
+-- links: { id, name?, cmd? } -> { toKey, name, cmd }; no id, dropped.
+local l = roomframe.links({ { id = "tiss.hub", name = "Lift 12" }, { id = 7, cmd = "enter portal" }, { name = "x" }, "junk" })
+check("links count", l and #l, 2)
+check("links toKey", l and l[1].toKey, "tiss.hub")
+check("links name", l and l[1].name, "Lift 12")
+check("links number id", l and l[2].toKey, "7")
+check("links cmd", l and l[2].cmd, "enter portal")
+check("links missing", roomframe.links(nil), nil)
+check("normalize links", roomframe.normalize({ id = "r", links = { { id = "h" } } }).links[1].toKey, "h")
+
 -- tags: mudstd `tags`, else IRE `details`; non-strings dropped; numbers kept.
 r = roomframe.normalize({ id = "m", tags = { "market", "", 7, {} } }, true)
 check("tags kept", r.tags and r.tags[1], "market")

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createMap, getRoomByKey, currentRoom, getRoom, getArea } from "./graph.js";
 import { resolveRoomSeen } from "./identity.js";
 import { vector } from "./directions.js";
+import { addLink } from "./links.js";
 
 describe("resolveRoomSeen", () => {
   it("creates the first room at origin with no link", () => {
@@ -357,5 +358,41 @@ describe("resolveRoomSeen: server annotations", () => {
     resolveRoomSeen(m, { key: "A", areaTag: "tiss", areaField: "area", region: "docks", regionName: "the Docks", tags: ["berth"] }, null);
     expect(getArea(m, r.areaId).regions).toEqual({ docks: "the Docks" });
     expect(r).toMatchObject({ color: "#ff0000", symbol: "X", note: "mine", tags: ["berth"] });
+  });
+});
+
+describe("resolveRoomSeen — the server's links", () => {
+  const lobby = (key, links) => ({ key, name: key, links });
+  const L12 = (key) => ({ toKey: key, name: "Lift 12" });
+
+  it("links both ways once each end has been seen, whichever comes first", () => {
+    const m = createMap();
+    const rim = resolveRoomSeen(m, lobby("rim", [L12("mid"), L12("hub")]), null, {}).room;
+    expect(rim.links).toBeUndefined();
+    expect(rim.linkKeys).toEqual({ mid: { name: "Lift 12" }, hub: { name: "Lift 12" } });
+    // Ride to the hub: its frame links it back, and the rim's pending link lands.
+    const hub = resolveRoomSeen(m, lobby("hub", [L12("rim"), L12("mid")]), null, {}).room;
+    expect(hub.links).toEqual({ [rim.id]: { name: "Lift 12", server: true } });
+    expect(rim.links).toEqual({ [hub.id]: { name: "Lift 12", server: true } });
+  });
+
+  it("drops a server link the frame stops listing, but keeps the user's", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, lobby("a", []), null, {}).room;
+    const b = resolveRoomSeen(m, lobby("b", [L12("a")]), null, {}).room;
+    const c = resolveRoomSeen(m, lobby("c", []), null, {}).room;
+    addLink(m, b.id, c.id, { name: "Mine", oneWay: true });
+    resolveRoomSeen(m, lobby("b", []), null, {});
+    expect(b.links).toEqual({ [c.id]: { name: "Mine" } });
+    expect(b.linkKeys).toBeUndefined();
+    expect(a.links).toBeUndefined();
+  });
+
+  it("leaves links alone on a frame without a list", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, lobby("a", []), null, {}).room;
+    const b = resolveRoomSeen(m, lobby("b", [L12("a")]), null, {}).room;
+    resolveRoomSeen(m, { key: "b", name: "b" }, null, {});
+    expect(b.links).toEqual({ [a.id]: { name: "Lift 12", server: true } });
   });
 });

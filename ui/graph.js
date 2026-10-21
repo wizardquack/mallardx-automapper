@@ -27,6 +27,10 @@ export function createMap() {
 //   wrapX        — where the server says the room's x comes round (a ring's
 //                  seam); render.js draws the ring centred on the view.
 //   tags, region — the server's features and part-of-area key (annotate.js).
+//   links        — { [toId]: { name?, cmd?, server? } }, ways that aren't exits
+//                  (links.js); the user's, or the server's `links` extension.
+//   linkKeys     — { [targetKey]: { name?, cmd? } }, the links the room last
+//                  reported by key, for targets not yet on the map.
 // and fields only the user sets (edits.js): color, symbol, note.
 // Areas may carry `regions` — { [regionKey]: name }.
 export function addRoom(map, { key, fp, name, env, coords, areaId }) {

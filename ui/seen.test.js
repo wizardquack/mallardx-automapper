@@ -94,3 +94,14 @@ describe("terrainsFromFrame", () => {
     expect(terrainsFromFrame({ list: {} })).toEqual({});
   });
 });
+
+describe("seenFromFrame: links", () => {
+  it("keeps well-formed links, a Lua empty list as none, and drops junk", () => {
+    const s = seenFromFrame({ key: "r", links: [
+      { toKey: "hub", name: "Lift 12" }, { toKey: 7, cmd: "enter portal" }, { name: "x" }, null,
+    ] });
+    expect(s.links).toEqual([{ toKey: "hub", name: "Lift 12" }, { toKey: "7", cmd: "enter portal" }]);
+    expect(seenFromFrame({ key: "r", links: {} }).links).toEqual([]);
+    expect(seenFromFrame({ key: "r" }).links).toBeUndefined();
+  });
+});

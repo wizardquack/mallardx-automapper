@@ -46,6 +46,12 @@ richer frame.
   is in (a district, a quarter) and what to call it: drawn as a tint behind
   its rooms, with its name over them.
 
+- **`links`** (extension) — `[{ id, name?, cmd? }]`, ways from the room
+  that aren't exits: a lift's other stops, a portal. Each becomes a link
+  (see **Links**) once both rooms are on the map, from whichever end is seen
+  first; `cmd`, where one command takes it, lets a speedwalk take it too.
+  A link the server stops listing goes; one you made or edited stays.
+
 `in` and `out` are exits with no compass direction: the map stores them, and
 `/goto`, click-to-walk and the speedwalk route through them (sending `in` and
 `out`), but they don't place rooms or draw lines — the room through a hatch

@@ -91,6 +91,53 @@ export function hasWay(map, fromId, toId) {
   return Object.keys(from.exits).some((d) => from.exits[d].to === toId);
 }
 
+// ── The server's links (identity.js) ────────────────────────────────────────
+
+// Record the links a room's frame lists, by target key, as `linkKeys`, and
+// link the ones whose target is on the map. A frame without a list leaves
+// them alone; one with a list replaces them, and drops the server's links
+// it no longer lists. A link the user made or edited stays theirs.
+export function applyServerLinks(map, room, list, byKey) {
+  if (!Array.isArray(list)) return;
+  const keys = {};
+  for (const l of list) {
+    const v = {};
+    if (l.name) v.name = l.name;
+    if (l.cmd) v.cmd = l.cmd;
+    keys[l.toKey] = v;
+  }
+  if (Object.keys(keys).length) room.linkKeys = keys; else delete room.linkKeys;
+  const listed = new Set();
+  for (const key of Object.keys(keys)) {
+    const target = byKey(key);
+    if (!target) continue;
+    listed.add(target.id);
+    setServerLink(map, room.id, target.id, keys[key]);
+  }
+  const links = linksOf(room);
+  for (const to of Object.keys(links)) {
+    if (links[to].server && !listed.has(to)) dropOne(map, room.id, to);
+  }
+}
+
+// A room just seen may be where other rooms' links lead: link those too, so
+// a lift ridden once is known both ways before its far lobby is seen again.
+export function linkLinksInto(map, room) {
+  if (room.key == null) return;
+  for (const id of Object.keys(map.rooms)) {
+    const r = map.rooms[id];
+    const v = r.linkKeys && r.linkKeys[room.key];
+    if (v && r !== room) setServerLink(map, r.id, room.id, v);
+  }
+}
+
+function setServerLink(map, fromId, toId, { name, cmd }) {
+  const cur = linksOf(map.rooms[fromId])[toId];
+  if (cur && !cur.server) return false;
+  if (cur && (cur.name || "") === (name || "") && (cur.cmd || "") === (cmd || "")) return false;
+  return setOne(map, fromId, toId, { name, cmd, server: true });
+}
+
 // ── Keeping links whole when rooms go (edits.js) ─────────────────────────────
 
 // Drop every link into `id` (a room being deleted).

@@ -68,6 +68,21 @@ function M.tags(data)
   return out
 end
 
+-- Ways to other rooms that aren't exits (extension `links`): a list of
+-- { id, name?, cmd? } -> a list of { toKey, name, cmd }, or nil when there's
+-- no list. Entries without an id are dropped.
+function M.links(list)
+  if type(list) ~= "table" then return nil end
+  local out = {}
+  for _, l in ipairs(list) do
+    if type(l) == "table" then
+      local to = str(l.id)
+      if to then out[#out + 1] = { toKey = to, name = str(l.name), cmd = str(l.cmd) } end
+    end
+  end
+  return out
+end
+
 -- mudstd.room.terrain: a list of { id, label, color?, tile_url? } -> a list of
 -- { id, label, color } with color as "#rrggbb" or nil. Entries without an id
 -- are dropped; a missing label falls back to the id.
@@ -116,6 +131,8 @@ function M.normalize(data, with_exits)
     tags = M.tags(data),
     region = str(data.region),
     regionName = str(data.regionName),
+    -- Lifts, portals and the like: ways that aren't exits (extension).
+    links = M.links(data.links),
   }
   if with_exits then room.exits = movement.exits(data.exits) end
   return room

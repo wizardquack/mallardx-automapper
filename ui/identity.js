@@ -7,6 +7,7 @@ import {
 } from "./graph.js";
 import { vector, reverse, isDirection, isCompass, ALL_DIRECTIONS } from "./directions.js";
 import { resolveArea, refreshAreaName } from "./area.js";
+import { applyServerLinks, linkLinksInto } from "./links.js";
 
 export function resolveRoomSeen(map, seen, pendingDir, cfg) {
   // Non-GMCP worlds have no stable room id; they arrive with a fingerprint
@@ -39,6 +40,8 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
     linkTraversal(map, prev, existing, dir, !inferred);
     recordExitKeys(existing, seen.exits);
     linkKnownExits(map, existing, seen.exits);
+    applyServerLinks(map, existing, seen.links, (k) => getRoomByKey(map, k));
+    linkLinksInto(map, existing);
     setCurrent(map, existing.id);
     return { room: existing, created: false };
   }
@@ -63,6 +66,8 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
   linkTraversal(map, prev, room, dir, !inferred);
   recordExitKeys(room, seen.exits);
   linkKnownExits(map, room, seen.exits);
+  applyServerLinks(map, room, seen.links, (k) => getRoomByKey(map, k));
+  linkLinksInto(map, room);
   setCurrent(map, room.id);
   return { room, created: true };
 }
