@@ -224,9 +224,8 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
     if (r.glyph && roomSize >= GLYPH_MIN_ROOM) {
       ctx.fillStyle = inkOn(r.fill);
       ctx.font = `bold ${Math.round(roomSize * 0.62)}px system-ui, sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(r.glyph, r.px, r.py + 1);
+      const at = glyphOrigin(ctx, r.glyph, r.px, r.py);
+      ctx.fillText(r.glyph, at.x, at.y);
     }
   }
   if (!labels) return;
@@ -255,6 +254,25 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
       haloText(ctx, g.name, g.x, y, c);
     }
   }
+}
+
+// Where to draw `text` so its ink, not its em box, is centred on (cx, cy):
+// "middle" centres the em box, and where a glyph's ink sits in it varies by
+// glyph and font (✉ and ⚒ sit low, † high). Sets the ctx's align + baseline.
+// Without ink metrics, falls back to centring the em box.
+export function glyphOrigin(ctx, text, cx, cy) {
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  const m = ctx.measureText(text);
+  const { actualBoundingBoxLeft: l, actualBoundingBoxRight: r,
+    actualBoundingBoxAscent: a, actualBoundingBoxDescent: d } = m;
+  if (![l, r, a, d].every(Number.isFinite)) {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    return { x: cx, y: cy };
+  }
+  // The ink spans x−l…x+r across and y−a…y+d down from the origin.
+  return { x: cx - (r - l) / 2, y: cy + (a - d) / 2 };
 }
 
 function haloText(ctx, text, x, y, c) {

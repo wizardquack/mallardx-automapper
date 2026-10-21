@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createMap, addRoom, linkExit, setCurrent, addArea } from "./graph.js";
-import { computeLayout, envColor, draw, fitText, NAME_LABEL_MIN_SCALE } from "./render.js";
+import { computeLayout, envColor, draw, fitText, glyphOrigin, NAME_LABEL_MIN_SCALE } from "./render.js";
 import { setTerrains } from "./graph.js";
 
 function sampleMap() {
@@ -295,5 +295,26 @@ describe("draw: region label collisions", () => {
     ] };
     draw(ctx, layout, { roomSize: 20 });
     expect(texts(ctx)).toEqual(["Alpha", "Charlie"]);
+  });
+});
+
+describe("glyphOrigin", () => {
+  it("centres a glyph's ink, not its em box", () => {
+    // Ink 2px left of the origin to 8px right, 12px above the baseline to 2px below.
+    const ctx = { measureText: () => ({
+      width: 10, actualBoundingBoxLeft: 2, actualBoundingBoxRight: 8,
+      actualBoundingBoxAscent: 12, actualBoundingBoxDescent: 2,
+    }) };
+    expect(glyphOrigin(ctx, "$", 100, 50)).toEqual({ x: 97, y: 55 });
+    expect(ctx.textAlign).toBe("left");
+    expect(ctx.textBaseline).toBe("alphabetic");
+    // Its ink then spans 95…105 across and 43…57 down: centred on (100, 50).
+  });
+
+  it("falls back to centring the em box without ink metrics", () => {
+    const ctx = { measureText: () => ({ width: 10 }) };
+    expect(glyphOrigin(ctx, "$", 100, 50)).toEqual({ x: 100, y: 50 });
+    expect(ctx.textAlign).toBe("center");
+    expect(ctx.textBaseline).toBe("middle");
   });
 });
