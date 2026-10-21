@@ -361,6 +361,8 @@ async function handleMenuAction(action, arg, roomId) {
     const r = getRoom(map, roomId); if (!r) return;
     const note = await inlinePrompt("Note (empty clears)", r.note || "", true);
     if (note != null) applyEdit(() => setRoomNote(map, roomId, note));
+  } else if (action === "viewRoom") {
+    focusRoom(arg);
   } else if (action === "setCurrent") {
     applyEdit(() => { setCurrent(map, roomId); return true; });
   } else if (action === "deleteRoom") {

@@ -199,7 +199,8 @@ function recordingCtx() {
     calls,
     fillRect: (...a) => calls.push(["fillRect", ctx.fillStyle, ...a]),
     strokeRect: () => {}, beginPath: () => {}, moveTo: () => {}, lineTo: () => {}, stroke: () => {},
-    strokeText: () => {},
+    strokeText: () => {}, closePath: () => {},
+    fill: () => calls.push(["fill", ctx.fillStyle]),
     fillText: (t, x, y) => calls.push(["fillText", t, x, y]),
     measureText: (t) => ({ width: t.length * 6 }),
   };
@@ -282,6 +283,18 @@ describe("draw: annotations", () => {
     const ctx = recordingCtx();
     expect(fitText(ctx, "Hall", 40)).toBe("Hall");
     expect(fitText(ctx, "Observation Lounge", 40)).toBe("Obser…");
+  });
+});
+
+describe("draw: floor marks", () => {
+  it("fills a triangle for each way up or down, in the room's ink", () => {
+    const ctx = recordingCtx();
+    const room = (o) => ({ id: "1", px: 0, py: 0, fill: "#ffffff", env: "", ...o });
+    draw(ctx, { rooms: [room({ up: true, down: true })], exits: [], scale: 40 }, { roomSize: 20 });
+    expect(ctx.calls.filter((c) => c[0] === "fill")).toEqual([["fill", "#000000"], ["fill", "#000000"]]);
+    const plain = recordingCtx();
+    draw(plain, { rooms: [room({})], exits: [], scale: 40 }, { roomSize: 20 });
+    expect(plain.calls.filter((c) => c[0] === "fill")).toEqual([]);
   });
 });
 

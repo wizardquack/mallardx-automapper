@@ -77,6 +77,11 @@ grey. A glyph marks what's there — your symbol, else the first well-known tag:
 | `ϟ` charger | `⚒` workshop, machines | `▣` freight, storage | `i` terminal, info |
 | `!` quest | `†` trainer, guild | | |
 
+A room with a way up or down has a small triangle in its corner (▲ top
+right, ▼ bottom right), since only one floor is drawn at a time. The hover
+card names the rooms above and below, and the room's right-click menu has
+**▲ View …** / **▼ View …** to show that floor, centred on the room.
+
 Room names are drawn at the two largest zooms and region names from the
 middle one; **Aa** turns both off. **?** opens a legend of the terrains,
 glyphs and regions in view. Hover a room for its name, region, terrain, tags

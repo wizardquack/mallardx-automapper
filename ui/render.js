@@ -1,8 +1,9 @@
 // Pure layout computation + a thin canvas painter. Layout centers the
-// current room; only the current z-level is drawn (multi-level view is a
-// later phase).
+// current room; only the current z-level is drawn, and a room that leads up
+// or down is marked (floors.js).
 
 import { isCompass } from "./directions.js";
+import { floorMarks } from "./floors.js";
 import { fillColor, roomGlyph, regionColor, regionName, inkOn, envColor } from "./annotate.js";
 
 export { envColor };
@@ -45,6 +46,7 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
     const px = cx + (cell.x - anchor.coords.x) * scale;
     const py = cy + (cell.y - anchor.coords.y) * scale;
     placed[id] = { px, py, cell, wrapX: r.wrapX };
+    const marks = floorMarks(map, r);
     rooms.push({
       id, px, py, cell,
       isCurrent: cur != null && id === cur.id,
@@ -54,6 +56,8 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       fill: fillColor(map, r),
       glyph: roomGlyph(r),
       region: r.region || null,
+      up: marks.up,
+      down: marks.down,
     });
   }
 
@@ -227,6 +231,7 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
       const at = glyphOrigin(ctx, r.glyph, r.px, r.py);
       ctx.fillText(r.glyph, at.x, at.y);
     }
+    if (r.up || r.down) drawFloorMarks(ctx, r, half);
   }
   if (!labels) return;
 
@@ -253,6 +258,30 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
       drawn.push(box);
       haloText(ctx, g.name, g.x, y, c);
     }
+  }
+}
+
+// A way up is a small triangle pointing up in the room's top-right corner, a
+// way down one pointing down in its bottom-right, in the glyph's ink.
+function drawFloorMarks(ctx, r, half) {
+  const s = Math.max(3, half * 0.6);
+  const right = r.px + half - 1, top = r.py - half + 1, bottom = r.py + half - 1;
+  ctx.fillStyle = inkOn(r.fill || envColor(r.env));
+  if (r.up) {
+    ctx.beginPath();
+    ctx.moveTo(right - s, top + s);
+    ctx.lineTo(right, top + s);
+    ctx.lineTo(right - s / 2, top);
+    ctx.closePath();
+    ctx.fill();
+  }
+  if (r.down) {
+    ctx.beginPath();
+    ctx.moveTo(right - s, bottom - s);
+    ctx.lineTo(right, bottom - s);
+    ctx.lineTo(right - s / 2, bottom);
+    ctx.closePath();
+    ctx.fill();
   }
 }
 

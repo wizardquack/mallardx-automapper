@@ -6,6 +6,8 @@
 // region. User-set fields (edits.js): color, symbol, note. Server terrain
 // definitions live in map.terrains, region names in area.regions.
 
+import { floorNeighbours } from "./floors.js";
+
 // Built-in colours for well-known terrain words, for servers that name a
 // terrain without defining it (IRE's `environment`, a mudstd `terrain` with no
 // mudstd.room.terrain). Matched by word against the terrain's id and label, in
@@ -208,6 +210,11 @@ export function tooltipSpec(map, room) {
   if (terrain) rows.push({ label: "Terrain", value: terrain });
   const tags = Array.isArray(room.tags) ? room.tags.map(String).filter(Boolean) : [];
   if (tags.length) rows.push({ label: "Here", value: tags.join(", ") });
+  const floors = floorNeighbours(map, room);
+  const names = (up) => floors.filter((f) => f.up === up)
+    .map((f) => map.rooms[f.toId].name || `#${f.toId}`).join(", ");
+  if (floors.some((f) => f.up)) rows.push({ label: "Up", value: names(true) });
+  if (floors.some((f) => !f.up)) rows.push({ label: "Down", value: names(false) });
   const spec = { title: room.name || `#${room.id}`, rows };
   if (room.note) spec.body = room.note;
   return spec;

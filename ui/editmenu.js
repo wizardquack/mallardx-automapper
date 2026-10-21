@@ -5,6 +5,7 @@
 
 import { ALL_DIRECTIONS, reverse } from "./directions.js";
 import { SWATCHES } from "./annotate.js";
+import { floorNeighbours } from "./floors.js";
 
 function colorSubmenu(room) {
   const nodes = SWATCHES.map(([name, hex]) => ({
@@ -65,8 +66,16 @@ function areaSubmenu(room, areas, action) {
 export function roomMenuModel(map, id, areas) {
   const room = map.rooms[id];
   if (!room) return [];
+  // Where the room leads on other floors: each item shows that floor.
+  const floors = floorNeighbours(map, room).map((f) => ({
+    label: `${f.up ? "▲" : "▼"} View ${map.rooms[f.toId].name || `#${f.toId}`}`,
+    action: "viewRoom",
+    arg: f.toId,
+  }));
   return [
     { label: room.name || `#${id}`, header: true },
+    ...floors,
+    ...(floors.length ? [{ separator: true }] : []),
     { label: "Rename…", action: "rename" },
     { label: "Colour", submenu: colorSubmenu(room) },
     { label: room.symbol ? `Symbol (${room.symbol})…` : "Symbol…", action: "setSymbol" },
