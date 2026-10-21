@@ -7,6 +7,7 @@
 // definitions live in map.terrains, region names in area.regions.
 
 import { floorNeighbours } from "./floors.js";
+import { linksOf, linkLabel } from "./links.js";
 
 // Built-in colours for well-known terrain words, for servers that name a
 // terrain without defining it (IRE's `environment`, a mudstd `terrain` with no
@@ -210,11 +211,14 @@ export function tooltipSpec(map, room) {
   if (terrain) rows.push({ label: "Terrain", value: terrain });
   const tags = Array.isArray(room.tags) ? room.tags.map(String).filter(Boolean) : [];
   if (tags.length) rows.push({ label: "Here", value: tags.join(", ") });
-  const floors = floorNeighbours(map, room);
+  // Up and down by exit; links (a lift's stops among them) on their own row.
+  const floors = floorNeighbours(map, room).filter((f) => f.via === "exit");
   const names = (up) => floors.filter((f) => f.up === up)
     .map((f) => map.rooms[f.toId].name || `#${f.toId}`).join(", ");
   if (floors.some((f) => f.up)) rows.push({ label: "Up", value: names(true) });
   if (floors.some((f) => !f.up)) rows.push({ label: "Down", value: names(false) });
+  const links = Object.keys(linksOf(room)).filter((to) => map.rooms[to]);
+  if (links.length) rows.push({ label: "Links", value: links.map((to) => linkLabel(map, room.id, to)).join(", ") });
   const spec = { title: room.name || `#${room.id}`, rows };
   if (room.note) spec.body = room.note;
   return spec;

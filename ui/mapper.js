@@ -9,6 +9,7 @@ import { renameRoom, deleteRoom, mergeRooms, addExit, deleteExit, setOneWay,
   moveRoom, isCellOccupied, moveToArea, computePocket, movePocket,
   setRoomColor, setRoomSymbol, setRoomNote } from "./edits.js";
 import { legendModel, tooltipSpec, parseColor } from "./annotate.js";
+import { addLink, deleteLink, setLinkOneWay, setLinkField, linksOf, hasWay } from "./links.js";
 import { createHistory } from "./history.js";
 import { roomMenuModel } from "./editmenu.js";
 import { addArea } from "./graph.js";
@@ -48,6 +49,8 @@ let lastLayout = { rooms: [] };
 let lastRoomSize = 0;
 let pocketPreview = null;   // { ids:Set<string>, areaId:string } while previewing
 let pendingTerrains = null; // mudstd.room.terrain received before the map loaded
+let sawRoom = false;        // a room has arrived since the map loaded or we connected
+let linkOffer = null;       // { fromId, toId } while offering to link a move the map can't explain
 
 // View preferences, kept across reloads where the WebView allows storage.
 function pref(name, fallback) {
@@ -234,6 +237,11 @@ function dispatchWalkActions(actions) {
   for (const a of actions) {
     if (a.type === "send") {
       panel.post("walk_send", { cmd: a.cmd });
+    } else if (a.type === "manual") {
+      const to = getRoom(map, a.step.toId);
+      const where = to ? (to.name || `#${to.id}`) : "the next room";
+      const how = a.step.link && a.step.link.name ? `Take ${a.step.link.name} to ${where}` : `Make your way to ${where}`;
+      panel.post("notify", { text: `${how}; the walk carries on when you arrive.` });
     } else if (a.type === "done") {
       stopWalkTimer(); highlightPath = null; redraw();
     } else if (a.type === "aborted") {
@@ -361,6 +369,21 @@ async function handleMenuAction(action, arg, roomId) {
     const r = getRoom(map, roomId); if (!r) return;
     const note = await inlinePrompt("Note (empty clears)", r.note || "", true);
     if (note != null) applyEdit(() => setRoomNote(map, roomId, note));
+  } else if (action === "addLink") {
+    pendingMode = { kind: "link", fromId: roomId };
+    panel.post("notify", { text: "Click the room this links to — change floor or area first if need be (Esc to cancel)." });
+  } else if (action === "renameLink") {
+    const link = linksOf(getRoom(map, roomId))[arg]; if (!link) return;
+    const name = await inlinePrompt("Link name (empty clears)", link.name || "", true);
+    if (name != null) applyEdit(() => setLinkField(map, roomId, arg, "name", name));
+  } else if (action === "setLinkCmd") {
+    const link = linksOf(getRoom(map, roomId))[arg]; if (!link) return;
+    const cmd = await inlinePrompt("Command that takes it (empty: speedwalk stops for you to)", link.cmd || "", true);
+    if (cmd != null) applyEdit(() => setLinkField(map, roomId, arg, "cmd", cmd));
+  } else if (action === "toggleLinkOneWay") {
+    applyEdit(() => setLinkOneWay(map, roomId, arg.to, arg.oneWay));
+  } else if (action === "deleteLink") {
+    applyEdit(() => deleteLink(map, roomId, arg));
   } else if (action === "viewRoom") {
     focusRoom(arg);
   } else if (action === "setCurrent") {
@@ -531,6 +554,7 @@ panel.on("load", (frame) => {
   if (frame && frame.cfg) cfg = { ...cfg, ...frame.cfg };
   if (frame && frame.walk) walkCfg = { ...walkCfg, ...frame.walk };
   loaded = true;
+  sawRoom = false; hideLinkOffer();
   if (pendingTerrains) { setTerrains(map, pendingTerrains); pendingTerrains = null; }
   stopWalkTimer(); walk = null; highlightPath = null;
   focusCurrentArea();
@@ -547,11 +571,20 @@ panel.on("moved", (frame) => {
 // direction, mutates the graph, advances any active walk, and repaints.
 function ingestRoom(seen) {
   if (!loaded) return;
-  if (walk && walk.isActive()) {
+  const walking = !!(walk && walk.isActive());
+  if (walking) {
     const d = walk.pendingDir();
     if (d != null) pendingDir = d;
   }
+  const prevId = map.currentId, first = !sawRoom;
+  sawRoom = true;
   resolveRoomSeen(map, seen, pendingDir, cfg);
+  const curId = map.currentId;
+  if (curId !== prevId) hideLinkOffer();
+  if (!first && !walking && prevId != null && getRoom(map, prevId) && curId != null && curId !== prevId
+      && !hasWay(map, prevId, curId)) {
+    offerLink(prevId, curId);
+  }
   hideHover();   // the view recentres; a card would point at where the room was
   history.clear();
   pendingDir = null;
@@ -587,6 +620,9 @@ panel.on("capture", (frame) => {
 // Movement-failure guard: a blocked move produced no room change, so drop the
 // pending direction — otherwise the next reprint would forge a phantom link.
 panel.on("move_fail", () => { pendingDir = null; });
+
+// A new session: where you log in isn't a move to offer a link for.
+panel.on("connected", () => { sawRoom = false; hideLinkOffer(); });
 
 panel.on("recenter", () => { focusCurrentArea(); redraw(); });
 
@@ -788,8 +824,41 @@ function resolvePendingMode(targetId) {
   } else if (mode.kind === "addExit") {
     applyEdit(() => addExit(map, mode.fromId, mode.dir, targetId));
     panel.post("notify", { text: `Exit '${mode.dir}' added.` });
+  } else if (mode.kind === "link") {
+    if (targetId === mode.fromId) { panel.post("notify", { text: "Can't link a room to itself." }); return; }
+    makeLink(mode.fromId, targetId, false);
   }
 }
+
+// Name a new link (optional), then add it.
+async function makeLink(fromId, toId, oneWay) {
+  const name = await inlinePrompt("Link name, e.g. Lift 12 (optional)", "", true);
+  if (name == null) return;
+  if (applyEdit(() => addLink(map, fromId, toId, { name, oneWay }))) {
+    panel.post("notify", { text: oneWay ? "One-way link added." : "Link added." });
+  }
+}
+
+// ── Link offer ──────────────────────────────────────────────────────────────
+// After a move the map knows no exit or link for — a teleport, a lift, a
+// ferry — offer to link where you were to where you are.
+const $linkBar = document.querySelector(".link-bar");
+function offerLink(fromId, toId) {
+  linkOffer = { fromId, toId };
+  const from = getRoom(map, fromId);
+  $linkBar.querySelector(".link-bar-label").textContent =
+    `No known way here from ${from ? (from.name || `#${fromId}`) : `#${fromId}`}.`;
+  $linkBar.hidden = false;
+}
+function hideLinkOffer() { linkOffer = null; $linkBar.hidden = true; }
+function acceptLinkOffer(oneWay) {
+  const offer = linkOffer;
+  hideLinkOffer();
+  if (offer && getRoom(map, offer.fromId) && getRoom(map, offer.toId)) makeLink(offer.fromId, offer.toId, oneWay);
+}
+$linkBar.querySelector(".link-both").addEventListener("click", () => acceptLinkOffer(false));
+$linkBar.querySelector(".link-one").addEventListener("click", () => acceptLinkOffer(true));
+$linkBar.querySelector(".link-dismiss").addEventListener("click", hideLinkOffer);
 $canvas.addEventListener("dblclick", (e) => {
   const id = roomAt(e.clientX, e.clientY);
   if (id != null) startWalk(id);

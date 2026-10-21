@@ -43,7 +43,11 @@ end)
 
 -- A new session may be a different server: forget that the last one sent
 -- mudstd.room.info. (Also fires on plugin reload; a fresh load starts clear.)
-world.on("connect", function() roomsource.reset() end)
+-- The panel hears of it too: where you log in is no move to offer a link for.
+world.on("connect", function()
+  roomsource.reset()
+  panel:post("connected", {})
+end)
 
 -- Every outbound command. Our own speedwalk sends are consumed by the guard
 -- (no moved / no user_input). Genuine user input posts `moved` (for placement)

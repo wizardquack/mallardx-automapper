@@ -96,3 +96,27 @@ describe("roomMenuModel: annotations", () => {
     expect(ls).toContain("Edit note…");
   });
 });
+
+import { addLink } from "./links.js";
+
+describe("roomMenuModel: links", () => {
+  it("offers Link to… and, per link, view/name/command/one-way/delete", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", name: "Rim" });
+    const b = addRoom(m, { key: "b", name: "Hub" });
+    expect(find(roomMenuModel(m, a.id, []), "Links").submenu).toEqual([
+      { label: "Link to…", action: "addLink" },
+    ]);
+    addLink(m, a.id, b.id, { name: "Lift 12", oneWay: true });
+    const sub = find(roomMenuModel(m, a.id, []), "Links").submenu;
+    expect(sub[0].label).toBe("Lift 12 → Hub");
+    expect(sub[0].submenu).toEqual([
+      { label: "View", action: "viewRoom", arg: b.id },
+      { label: "Rename…", action: "renameLink", arg: b.id },
+      { label: "Command…", action: "setLinkCmd", arg: b.id },
+      { label: "Make two-way", action: "toggleLinkOneWay", arg: { to: b.id, oneWay: false } },
+      { label: "Delete link", danger: true, action: "deleteLink", arg: b.id },
+    ]);
+    expect(sub.slice(1)).toEqual([{ separator: true }, { label: "Link to…", action: "addLink" }]);
+  });
+});

@@ -4,6 +4,7 @@ import { floorNeighbours, floorMarks } from "./floors.js";
 import { computeLayout } from "./render.js";
 import { tooltipSpec } from "./annotate.js";
 import { roomMenuModel } from "./editmenu.js";
+import { addLink } from "./links.js";
 
 function stairs() {
   const m = createMap();
@@ -22,18 +23,18 @@ describe("floorNeighbours", () => {
   it("finds the rooms u and d lead to", () => {
     const { m, hall, loft, cellar } = stairs();
     expect(floorNeighbours(m, hall)).toEqual([
-      { toId: loft.id, up: true },
-      { toId: cellar.id, up: false },
+      { toId: loft.id, up: true, via: "exit" },
+      { toId: cellar.id, up: false, via: "exit" },
     ]);
-    expect(floorMarks(m, hall)).toEqual({ up: true, down: true });
-    expect(floorMarks(m, loft)).toEqual({ up: false, down: true });
+    expect(floorMarks(m, hall)).toEqual({ up: true, down: true, link: false });
+    expect(floorMarks(m, loft)).toEqual({ up: false, down: true, link: false });
   });
 
   it("counts a compass exit to another z in the same area by its target's z", () => {
     const { m, a, hall } = stairs();
     const landing = addRoom(m, { key: "N", name: "Landing", areaId: a.id, coords: { x: 0, y: -1, z: 1 } });
     linkExit(m, hall.id, "n", landing.id);
-    expect(floorNeighbours(m, hall)).toContainEqual({ toId: landing.id, up: true });
+    expect(floorNeighbours(m, hall)).toContainEqual({ toId: landing.id, up: true, via: "exit" });
   });
 
   it("ignores a same-floor exit and a compass exit into another area", () => {
@@ -53,7 +54,22 @@ describe("floorNeighbours", () => {
     const r = addRoom(m, { key: "R", areaId: a.id });
     const t = addRoom(m, { key: "T", areaId: b.id });
     linkExit(m, r.id, "u", t.id);
-    expect(floorNeighbours(m, r)).toEqual([{ toId: t.id, up: true }]);
+    expect(floorNeighbours(m, r)).toEqual([{ toId: t.id, up: true, via: "exit" }]);
+  });
+
+  it("counts a link to another floor, and marks one that stays on this floor", () => {
+    const { m, a, hall, cellar } = stairs();
+    const roof = addRoom(m, { key: "R", name: "Roof", areaId: a.id, coords: { x: 3, y: 0, z: 2 } });
+    const gate = addRoom(m, { key: "G", name: "Gate", areaId: a.id, coords: { x: 5, y: 0, z: 0 } });
+    addLink(m, hall.id, roof.id, { name: "Lift" });
+    addLink(m, hall.id, cellar.id);   // already below by d: counted once, as the exit
+    expect(floorNeighbours(m, hall)).toContainEqual({ toId: roof.id, up: true, via: "link" });
+    expect(floorNeighbours(m, hall).filter((f) => f.toId === cellar.id)).toEqual([
+      { toId: cellar.id, up: false, via: "exit" },
+    ]);
+    expect(floorMarks(m, hall).link).toBe(false);
+    addLink(m, hall.id, gate.id, { name: "Portal" });
+    expect(floorMarks(m, hall).link).toBe(true);
   });
 });
 

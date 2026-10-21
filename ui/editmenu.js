@@ -6,6 +6,7 @@
 import { ALL_DIRECTIONS, reverse } from "./directions.js";
 import { SWATCHES } from "./annotate.js";
 import { floorNeighbours } from "./floors.js";
+import { linksOf, linkLabel } from "./links.js";
 
 function colorSubmenu(room) {
   const nodes = SWATCHES.map(([name, hex]) => ({
@@ -51,6 +52,29 @@ function exitsSubmenu(map, room) {
   return nodes;
 }
 
+function linksSubmenu(map, room) {
+  const nodes = [];
+  const links = linksOf(room);
+  for (const to of Object.keys(links)) {
+    if (!map.rooms[to]) continue;
+    const link = links[to];
+    const oneWayNow = !linksOf(map.rooms[to])[room.id];
+    nodes.push({
+      label: linkLabel(map, room.id, to),
+      submenu: [
+        { label: "View", action: "viewRoom", arg: to },
+        { label: link.name ? "Rename…" : "Name…", action: "renameLink", arg: to },
+        { label: link.cmd ? `Command (${link.cmd})…` : "Command…", action: "setLinkCmd", arg: to },
+        { label: oneWayNow ? "Make two-way" : "Make one-way", action: "toggleLinkOneWay", arg: { to, oneWay: !oneWayNow } },
+        { label: "Delete link", danger: true, action: "deleteLink", arg: to },
+      ],
+    });
+  }
+  if (nodes.length) nodes.push({ separator: true });
+  nodes.push({ label: "Link to…", action: "addLink" });
+  return nodes;
+}
+
 function areaSubmenu(room, areas, action) {
   const others = areas.filter((a) => a.id !== room.areaId);
   const nodes = others.map((a) => ({
@@ -83,6 +107,7 @@ export function roomMenuModel(map, id, areas) {
     { label: "Set as current", action: "setCurrent" },
     { label: "Merge into…", action: "merge" },
     { label: "Exits", submenu: exitsSubmenu(map, room) },
+    { label: "Links", submenu: linksSubmenu(map, room) },
     { separator: true },
     { label: "Move to area", submenu: areaSubmenu(room, areas, "moveToArea") },
     { label: "Move connected pocket", submenu: areaSubmenu(room, areas, "movePocket") },

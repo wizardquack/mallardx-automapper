@@ -104,3 +104,78 @@ describe("walk: in/out steps", () => {
   });
 });
 
+
+describe("walk: links", () => {
+  // 1 -e-> 2 -(Lift 12, by hand)-> 3 -n-> 4
+  const lift = { name: "Lift 12" };
+  const L = [
+    { fromId: "1", dir: "e", toId: "2" },
+    { fromId: "2", link: lift, toId: "3" },
+    { fromId: "3", dir: "n", toId: "4" },
+  ];
+
+  it("safe: stops before a by-hand link and carries on from its far end", () => {
+    const w = createWalk({ mode: "safe", timeoutMs: 1000 });
+    expect(w.start(L, 0)).toEqual([{ type: "send", cmd: "e" }]);
+    expect(w.onRoomSeen("2", 100)).toEqual([{ type: "manual", step: L[1] }]);
+    expect(w.pendingDir()).toBe(null);
+    // No timeout, typing doesn't cancel, a reprint of the lobby is waited out.
+    expect(w.onTick(60000)).toEqual([]);
+    expect(w.onUserInput()).toEqual([]);
+    expect(w.onRoomSeen("2", 61000)).toEqual([]);
+    expect(w.onRoomSeen("3", 62000)).toEqual([{ type: "send", cmd: "n" }]);
+    expect(w.onRoomSeen("4", 62100)).toEqual([{ type: "done" }]);
+  });
+
+  it("safe: arriving somewhere else stops the walk", () => {
+    const w = createWalk({ mode: "safe" });
+    w.start(L, 0);
+    w.onRoomSeen("2", 100);
+    expect(w.onRoomSeen("9", 200)).toEqual([{ type: "aborted", reason: "off-route" }]);
+  });
+
+  it("safe: a link with a command is sent like a step", () => {
+    const P2 = [{ fromId: "1", link: { cmd: "enter portal" }, toId: "2" }];
+    const w = createWalk({ mode: "safe" });
+    expect(w.start(P2, 0)).toEqual([{ type: "send", cmd: "enter portal" }]);
+    expect(w.pendingDir()).toBe(null);
+    expect(w.onRoomSeen("2", 10)).toEqual([{ type: "done" }]);
+  });
+
+  it("safe: a route that starts with a by-hand link stops at once", () => {
+    const w = createWalk({ mode: "safe" });
+    expect(w.start(L.slice(1), 0)).toEqual([{ type: "manual", step: L[1] }]);
+  });
+
+  it("batched: sends each stretch between by-hand links as one line", () => {
+    const w = createWalk({ mode: "batched", separator: ";", timeoutMs: 1000 });
+    expect(w.start(L, 0)).toEqual([{ type: "send", cmd: "e" }]);
+    expect(w.onRoomSeen("2", 10)).toEqual([{ type: "manual", step: L[1] }]);
+    expect(w.onTick(999999)).toEqual([]);
+    expect(w.onRoomSeen("3", 20)).toEqual([{ type: "send", cmd: "n" }]);
+    expect(w.pendingDir()).toBe("n");
+    expect(w.onRoomSeen("4", 30)).toEqual([{ type: "done" }]);
+  });
+
+  it("batched: a command link rides in the line", () => {
+    const P2 = [
+      { fromId: "1", dir: "e", toId: "2" },
+      { fromId: "2", link: { cmd: "enter portal" }, toId: "3" },
+    ];
+    const w = createWalk({ mode: "batched", separator: ";" });
+    expect(w.start(P2, 0)).toEqual([{ type: "send", cmd: "e;enter portal" }]);
+  });
+
+  it("delay: lets the steps before a link land, then waits for its far end", () => {
+    const w = createWalk({ mode: "delay", delayMs: 250 });
+    expect(w.start(L, 0)).toEqual([{ type: "send", cmd: "e" }]);
+    expect(w.onTick(250)).toEqual([{ type: "manual", step: L[1] }]);
+    expect(w.onTick(500)).toEqual([]);
+    expect(w.pendingDir()).toBe("e");
+    expect(w.onRoomSeen("2", 300)).toEqual([]);   // the e step lands
+    expect(w.pendingDir()).toBe(null);
+    expect(w.onRoomSeen("3", 900)).toEqual([{ type: "send", cmd: "n" }]);
+    expect(w.onTick(1149)).toEqual([]);
+    expect(w.onTick(1150)).toEqual([{ type: "done" }]);
+  });
+});

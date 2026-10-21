@@ -81,3 +81,46 @@ describe("findPath through in/out", () => {
   });
 });
 
+
+import { addLink } from "./links.js";
+import { LINK_COST } from "./pathfind.js";
+
+describe("findPath over links", () => {
+  function shaft() {
+    const m = createMap();
+    const rooms = ["Rim", "Mid", "Inner", "Hub"].map((name, z) =>
+      addRoom(m, { key: name, name, coords: { x: 0, y: 0, z } }));
+    return { m, rooms };
+  }
+
+  it("takes a link where there's no exit", () => {
+    const { m, rooms: [rim, , , hub] } = shaft();
+    addLink(m, rim.id, hub.id, { name: "Lift 12" });
+    expect(findPath(m, rim.id, hub.id)).toEqual([
+      { fromId: rim.id, link: { name: "Lift 12" }, toId: hub.id },
+    ]);
+  });
+
+  it("prefers exits until the walk is longer than a link", () => {
+    const { m, rooms } = shaft();
+    for (let i = 0; i < 3; i++) linkExit(m, rooms[i].id, "u", rooms[i + 1].id);
+    addLink(m, rooms[0].id, rooms[3].id);
+    expect(findPath(m, rooms[0].id, rooms[3].id).map((s) => s.dir)).toEqual(["u", "u", "u"]);
+    // A walk longer than LINK_COST steps loses to the link.
+    const far = [rooms[3]];
+    for (let i = 0; i < LINK_COST; i++) {
+      const r = addRoom(m, { key: `F${i}`, name: `F${i}` });
+      linkExit(m, far[far.length - 1].id, "e", r.id);
+      far.push(r);
+    }
+    const end = far[far.length - 1];
+    addLink(m, rooms[0].id, end.id);
+    expect(findPath(m, rooms[0].id, end.id)).toHaveLength(1);
+  });
+
+  it("counts a link's cost in distances", () => {
+    const { m, rooms: [rim, mid] } = shaft();
+    addLink(m, rim.id, mid.id);
+    expect(distances(m, rim.id)[mid.id]).toBe(LINK_COST);
+  });
+});

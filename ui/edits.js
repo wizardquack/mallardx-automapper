@@ -4,6 +4,7 @@
 // success flag so mapper's applyEdit() can skip no-ops.
 
 import { reverse } from "./directions.js";
+import { dropLinksTo, mergeLinks } from "./links.js";
 
 export function renameRoom(map, id, name) {
   const r = map.rooms[id];
@@ -48,6 +49,7 @@ export function deleteRoom(map, id) {
       if (ex[dir].to === id) delete ex[dir];
     }
   }
+  dropLinksTo(map, id);
   if (map.currentId === id) map.currentId = null;
   return true;
 }
@@ -80,6 +82,7 @@ export function mergeRooms(map, sourceId, targetId) {
     tgt.key = src.key;
     map.keyIndex[src.key] = targetId;
   }
+  mergeLinks(map, sourceId, targetId);
   delete map.rooms[sourceId];
   if (map.currentId === sourceId) map.currentId = targetId;
   return true;

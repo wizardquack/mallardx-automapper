@@ -91,6 +91,30 @@ Right-click a room for **Colour ▸** (swatches, custom hex, clear),
 **Symbol…** (one or two characters) and **Add note…**. These are yours: the
 server's frames never change them.
 
+## Links
+
+A link is a way between two rooms that isn't an exit: a lift, a portal, a
+ferry, a recall. It has a name (`Lift 12`) and, optionally, the command that
+takes it (`enter portal`).
+
+- **Make one:** right-click a room → **Links ▸ Link to…**, then click the
+  room it leads to (change floor or area first if need be) and name it.
+- **Or let the map offer:** after a move the map knows no exit or link for,
+  a bar offers to link where you were to where you are — **Link both ways**,
+  **One way**, or ✕.
+- **Edit:** **Links ▸** *a link* ▸ View, Rename…, Command…, Make one-way /
+  two-way, Delete link.
+
+Links route: `/goto`, click-to-walk and the speedwalk use them, at the cost
+of five steps each, so a short walk is still preferred. A link with a command
+is sent like a step. One without — a lift you have to call and ride — is
+taken by hand: the walk stops before it ("Take Lift 12 to the Hub; the walk
+carries on when you arrive"), waits as long as it takes (typing doesn't
+cancel it; `/map stop` does), and carries on when you arrive.
+
+On the map, a link to another floor shows as that floor's ▲ or ▼; any other
+link is a dot in the room's top-left corner. The hover card lists them.
+
 ## Non-GMCP MUDs (Phase 4)
 
 On a MUD without `room.info` GMCP, the mapper identifies each room by a

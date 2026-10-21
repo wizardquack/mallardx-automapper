@@ -58,6 +58,7 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       region: r.region || null,
       up: marks.up,
       down: marks.down,
+      link: marks.link,
     });
   }
 
@@ -231,7 +232,7 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
       const at = glyphOrigin(ctx, r.glyph, r.px, r.py);
       ctx.fillText(r.glyph, at.x, at.y);
     }
-    if (r.up || r.down) drawFloorMarks(ctx, r, half);
+    if (r.up || r.down || r.link) drawFloorMarks(ctx, r, half);
   }
   if (!labels) return;
 
@@ -262,11 +263,17 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
 }
 
 // A way up is a small triangle pointing up in the room's top-right corner, a
-// way down one pointing down in its bottom-right, in the glyph's ink.
+// way down one pointing down in its bottom-right, and a link elsewhere a dot
+// in its top-left, all in the glyph's ink.
 function drawFloorMarks(ctx, r, half) {
   const s = Math.max(3, half * 0.6);
   const right = r.px + half - 1, top = r.py - half + 1, bottom = r.py + half - 1;
   ctx.fillStyle = inkOn(r.fill || envColor(r.env));
+  if (r.link) {
+    ctx.beginPath();
+    ctx.arc(r.px - half + 1 + s / 2, top + s / 2, s / 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
   if (r.up) {
     ctx.beginPath();
     ctx.moveTo(right - s, top + s);
