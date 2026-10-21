@@ -120,3 +120,30 @@ describe("roomMenuModel: links", () => {
     expect(sub.slice(1)).toEqual([{ separator: true }, { label: "Link to…", action: "addLink" }]);
   });
 });
+
+import { selectionMenuModel } from "./editmenu.js";
+
+describe("selectionMenuModel", () => {
+  it("offers colour, symbol, area move and delete for the selection", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", areaId: "1" });
+    const b = addRoom(m, { key: "b", areaId: "1" });
+    b.color = "#d9534f";
+    const areas = [{ id: "1", label: "One" }, { id: "2", label: "Two" }];
+    const model = selectionMenuModel(m, [a.id, b.id], areas);
+    expect(model[0]).toEqual({ label: "2 rooms selected", header: true });
+    const colour = find(model, "Colour").submenu;
+    expect(colour[0]).toEqual({ label: "Red", action: "selSetColor", arg: "#d9534f" });   // not ✓: they differ
+    expect(find(colour, "Custom…").action).toBe("selSetColorCustom");
+    expect(find(colour, "Clear")).toMatchObject({ action: "selSetColor", arg: "", disabled: false });
+    expect(labels(find(model, "Move to area").submenu)).toEqual(["One", "Two", undefined, "New area…"]);
+    expect(find(model, "Delete 2 rooms")).toMatchObject({ danger: true, action: "selDelete" });
+    expect(selectionMenuModel(m, ["99"], areas)).toEqual([]);
+  });
+
+  it("the room menu can select its connected pocket", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", areaId: "1" });
+    expect(find(roomMenuModel(m, a.id, []), "Select connected pocket").action).toBe("selectPocket");
+  });
+});

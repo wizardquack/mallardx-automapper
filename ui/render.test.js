@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createMap, addRoom, linkExit, setCurrent, addArea } from "./graph.js";
-import { computeLayout, envColor, draw, fitText, glyphOrigin, NAME_LABEL_MIN_SCALE } from "./render.js";
+import { computeLayout, envColor, draw, fitText, glyphOrigin, roomsInRect, NAME_LABEL_MIN_SCALE } from "./render.js";
 import { setTerrains } from "./graph.js";
 
 function sampleMap() {
@@ -329,5 +329,14 @@ describe("glyphOrigin", () => {
     expect(glyphOrigin(ctx, "$", 100, 50)).toEqual({ x: 100, y: 50 });
     expect(ctx.textAlign).toBe("center");
     expect(ctx.textBaseline).toBe("middle");
+  });
+});
+
+describe("roomsInRect", () => {
+  it("picks the rooms whose squares meet the box, dragged either way", () => {
+    const layout = { rooms: [{ id: "1", px: 0, py: 0 }, { id: "2", px: 40, py: 0 }, { id: "3", px: 0, py: 40 }] };
+    expect(roomsInRect(layout, -5, -5, 32, 5, 20)).toEqual(["1", "2"]);
+    expect(roomsInRect(layout, 32, 5, -5, -5, 20)).toEqual(["1", "2"]);
+    expect(roomsInRect(layout, 11, 11, 29, 29, 20)).toEqual([]);
   });
 });

@@ -95,6 +95,16 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
   return { rooms, exits, tints, regions, scale };
 }
 
+// The ids of the laid-out rooms whose squares meet the box between two
+// canvas points (a drag to select, either way round).
+export function roomsInRect(layout, x0, y0, x1, y1, roomSize) {
+  const half = roomSize / 2;
+  const l = Math.min(x0, x1), r = Math.max(x0, x1), t = Math.min(y0, y1), b = Math.max(y0, y1);
+  return layout.rooms
+    .filter((rm) => rm.px + half >= l && rm.px - half <= r && rm.py + half >= t && rm.py - half <= b)
+    .map((rm) => rm.id);
+}
+
 // Where a room is drawn. On a ring (the server's `wrap`, kept as `wrapX`) x
 // comes round, so the room is drawn at the x nearest the anchor's: the ring
 // is centred on where you are, and its seam is always on the far side.
@@ -226,13 +236,15 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
     else if (r.onPath) { ctx.strokeStyle = c.roomPath; ctx.lineWidth = 2; }
     else { ctx.strokeStyle = c.roomStroke; ctx.lineWidth = 1; }
     ctx.strokeRect(r.px - half, r.py - half, roomSize, roomSize);
+    const marked = r.up || r.down || r.link;
     if (r.glyph && roomSize >= GLYPH_MIN_ROOM) {
+      // Beside a mark the glyph is smaller and left of centre, clear of it.
       ctx.fillStyle = inkOn(r.fill);
-      ctx.font = `bold ${Math.round(roomSize * 0.62)}px system-ui, sans-serif`;
-      const at = glyphOrigin(ctx, r.glyph, r.px, r.py);
+      ctx.font = `bold ${Math.round(roomSize * (marked ? 0.5 : 0.62))}px system-ui, sans-serif`;
+      const at = glyphOrigin(ctx, r.glyph, marked ? r.px - markSize(half) / 2 : r.px, r.py);
       ctx.fillText(r.glyph, at.x, at.y);
     }
-    if (r.up || r.down || r.link) drawFloorMarks(ctx, r, half);
+    if (marked) drawFloorMarks(ctx, r, half);
   }
   if (!labels) return;
 
@@ -265,8 +277,12 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
 // A way up is a small triangle pointing up in the room's top-right corner, a
 // way down one pointing down in its bottom-right, and a link elsewhere a dot
 // in its top-left, all in the glyph's ink.
+function markSize(half) {
+  return Math.max(3, half * 0.6);
+}
+
 function drawFloorMarks(ctx, r, half) {
-  const s = Math.max(3, half * 0.6);
+  const s = markSize(half);
   const right = r.px + half - 1, top = r.py - half + 1, bottom = r.py + half - 1;
   ctx.fillStyle = inkOn(r.fill || envColor(r.env));
   if (r.link) {

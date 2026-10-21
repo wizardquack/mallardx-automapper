@@ -294,3 +294,41 @@ describe("annotation edits", () => {
     expect(t).toMatchObject({ env: "corridor", color: "#111111", symbol: "S", note: "n", tags: ["market"], region: "docks" });
   });
 });
+
+import { moveRooms, editEach } from "./edits.js";
+
+describe("moveRooms", () => {
+  function row() {
+    const m = createMap();
+    const rs = [0, 1, 2].map((x) => addRoom(m, { key: `r${x}`, areaId: "1", coords: { x, y: 0, z: 0 } }));
+    return { m, rs };
+  }
+
+  it("shifts rooms together, past each other's cells", () => {
+    const { m, rs } = row();
+    expect(moveRooms(m, [rs[0].id, rs[1].id], 1, 1)).toBe(true);
+    expect(rs.map((r) => r.coords)).toEqual([
+      { x: 1, y: 1, z: 0 }, { x: 2, y: 1, z: 0 }, { x: 2, y: 0, z: 0 },
+    ]);
+  });
+
+  it("moves a row onto its own cells along itself", () => {
+    const { m, rs } = row();
+    expect(moveRooms(m, [rs[0].id, rs[1].id], 1, 0)).toBe(false);   // r1 would land on r2
+    expect(moveRooms(m, rs.map((r) => r.id), 1, 0)).toBe(true);
+  });
+
+  it("refuses, moving nothing, where one would land on a room staying put", () => {
+    const { m, rs } = row();
+    expect(moveRooms(m, [rs[0].id], 2, 0)).toBe(false);
+    expect(rs[0].coords).toEqual({ x: 0, y: 0, z: 0 });
+    expect(moveRooms(m, [rs[0].id], 0, 0)).toBe(false);
+  });
+
+  it("editEach reports whether any changed", () => {
+    const { m, rs } = row();
+    const ids = rs.map((r) => r.id);
+    expect(editEach(m, ids, (mm, id) => setRoomColor(mm, id, "#112233"))).toBe(true);
+    expect(editEach(m, ids, (mm, id) => setRoomColor(mm, id, "#112233"))).toBe(false);
+  });
+});

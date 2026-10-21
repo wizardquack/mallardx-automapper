@@ -203,3 +203,34 @@ export function movePocket(map, ids, areaId) {
   }
   return true;
 }
+
+// ── Many rooms at once (a selection) ─────────────────────────────────────────
+
+// Apply a one-room edit to each; true if any changed.
+export function editEach(map, ids, fn) {
+  let changed = false;
+  for (const id of ids) if (fn(map, id)) changed = true;
+  return changed;
+}
+
+// Shift rooms by (dx, dy) on their own floors, keeping their shape. Refused
+// (false, nothing moved) where one would land on a room that isn't moving.
+export function moveRooms(map, ids, dx, dy) {
+  const moving = new Set(ids.filter((id) => map.rooms[id]));
+  if (moving.size === 0 || (dx === 0 && dy === 0)) return false;
+  const taken = new Set();
+  for (const id of Object.keys(map.rooms)) {
+    if (moving.has(id)) continue;
+    const r = map.rooms[id];
+    taken.add(`${r.areaId}|${r.coords.x},${r.coords.y},${r.coords.z}`);
+  }
+  for (const id of moving) {
+    const r = map.rooms[id];
+    if (taken.has(`${r.areaId}|${r.coords.x + dx},${r.coords.y + dy},${r.coords.z}`)) return false;
+  }
+  for (const id of moving) {
+    const r = map.rooms[id];
+    r.coords = { x: r.coords.x + dx, y: r.coords.y + dy, z: r.coords.z };
+  }
+  return true;
+}

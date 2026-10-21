@@ -7,16 +7,16 @@ import {
 } from "./graph.js";
 import { renameRoom, deleteRoom, mergeRooms, addExit, deleteExit, setOneWay,
   moveRoom, isCellOccupied, moveToArea, computePocket, movePocket,
-  setRoomColor, setRoomSymbol, setRoomNote } from "./edits.js";
+  setRoomColor, setRoomSymbol, setRoomNote, editEach, moveRooms } from "./edits.js";
 import { legendModel, tooltipSpec, parseColor } from "./annotate.js";
 import { addLink, deleteLink, setLinkOneWay, setLinkField, linksOf, hasWay } from "./links.js";
 import { createHistory } from "./history.js";
-import { roomMenuModel } from "./editmenu.js";
+import { roomMenuModel, selectionMenuModel } from "./editmenu.js";
 import { addArea } from "./graph.js";
 import { resolveRoomSeen } from "./identity.js";
 import { seenFromFrame, terrainsFromFrame } from "./seen.js";
 import { fingerprint, suggestNamePattern, suggestExitsPattern } from "./fingerprint.js";
-import { computeLayout, draw, DEFAULT_COLORS } from "./render.js";
+import { computeLayout, draw, roomsInRect, DEFAULT_COLORS } from "./render.js";
 import { findPath } from "./pathfind.js";
 import { matchRooms, resolveDestination } from "./search.js";
 import { createWalk } from "./walk.js";
@@ -50,6 +50,8 @@ let lastRoomSize = 0;
 let pocketPreview = null;   // { ids:Set<string>, areaId:string } while previewing
 let pendingTerrains = null; // mudstd.room.terrain received before the map loaded
 let sawRoom = false;        // a room has arrived since the map loaded or we connected
+let selection = new Set();  // room ids picked with shift-click / shift-drag
+let marquee = null;         // { x0, y0, x1, y1 } canvas px while shift-dragging a box
 let linkOffer = null;       // { fromId, toId } while offering to link a move the map can't explain
 
 // View preferences, kept across reloads where the WebView allows storage.
@@ -160,6 +162,8 @@ function redraw() {
   lastLayout = layout;
   lastRoomSize = Math.max(8, ZOOMS[zoomIdx] * 0.5);
   draw(ctx, layout, { roomSize: lastRoomSize, colors: themeColors(), labels: showLabels });
+  for (const id of selection) if (!map.rooms[id]) selection.delete(id);
+  drawSelection();
   const cur = currentRoom(map);
   $name.textContent = cur ? (cur.name || "(unnamed room)") : "Not mapping";
   drawPocketOverlay();
@@ -344,11 +348,78 @@ function inlineConfirm(message) {
   });
 }
 
+// ── Selection ────────────────────────────────────────────────────────────────
+// Shift-click adds or removes a room, shift-drag on empty map adds a box of
+// them; right-click one for what to do with them all. Dragging a selected
+// room moves the lot.
+function drawSelection() {
+  const accent = themeColors().exitPath;
+  ctx.save();
+  if (selection.size) {
+    ctx.strokeStyle = accent; ctx.lineWidth = 2;
+    if (ctx.setLineDash) ctx.setLineDash([3, 2]);
+    const half = lastRoomSize / 2 + 3;
+    for (const r of lastLayout.rooms) {
+      if (selection.has(r.id)) ctx.strokeRect(r.px - half, r.py - half, half * 2, half * 2);
+    }
+  }
+  if (marquee) {
+    const x = Math.min(marquee.x0, marquee.x1), y = Math.min(marquee.y0, marquee.y1);
+    const w = Math.abs(marquee.x1 - marquee.x0), h = Math.abs(marquee.y1 - marquee.y0);
+    ctx.globalAlpha = 0.12; ctx.fillStyle = accent; ctx.fillRect(x, y, w, h);
+    ctx.globalAlpha = 1; ctx.strokeStyle = accent; ctx.lineWidth = 1;
+    if (ctx.setLineDash) ctx.setLineDash([4, 3]);
+    ctx.strokeRect(x, y, w, h);
+  }
+  ctx.restore();
+}
+
+function clearSelection() {
+  if (!selection.size) return false;
+  selection.clear();
+  return true;
+}
+
+const SELECTION_ACTIONS = new Set([
+  "selClear", "selSetColor", "selSetColorCustom", "selSetSymbol", "selMoveToArea", "selDelete",
+]);
+async function handleSelectionAction(action, arg) {
+  const ids = Array.from(selection);
+  if (action === "selClear") {
+    clearSelection(); redraw();
+  } else if (action === "selSetColor") {
+    applyEdit(() => editEach(map, ids, (m, id) => setRoomColor(m, id, arg)));
+  } else if (action === "selSetColorCustom") {
+    const input = await inlinePrompt(`Colour for ${ids.length} rooms (hex, e.g. #3aa8a0)`, "");
+    if (input == null) return;
+    const hex = parseColor(input);
+    if (!hex) { panel.post("notify", { text: `'${input}' isn't a hex colour.` }); return; }
+    applyEdit(() => editEach(map, ids, (m, id) => setRoomColor(m, id, hex)));
+  } else if (action === "selSetSymbol") {
+    const sym = await inlinePrompt(`Symbol for ${ids.length} rooms (1–2 characters; empty clears)`, "", true);
+    if (sym != null) applyEdit(() => editEach(map, ids, (m, id) => setRoomSymbol(m, id, sym)));
+  } else if (action === "selMoveToArea") {
+    const areaId = await resolveTargetArea(arg);
+    if (areaId == null) return;
+    if (applyEdit(() => movePocket(map, ids, areaId))) {
+      panel.post("notify", { text: `Moved ${ids.length} room(s) to area.` });
+    }
+  } else if (action === "selDelete") {
+    const ok = await inlineConfirm(`Delete ${ids.length} rooms?`);
+    if (ok && applyEdit(() => editEach(map, ids, deleteRoom))) { clearSelection(); redraw(); }
+  }
+}
+
 // ── Menu action dispatcher ────────────────────────────────────────────────────
 async function handleMenuAction(action, arg, roomId) {
   if (pocketPreview) cancelPocket();
   pendingMode = null;
-  if (action === "rename") {
+  if (SELECTION_ACTIONS.has(action)) { await handleSelectionAction(action, arg); return; }
+  if (action === "selectPocket") {
+    selection = new Set(computePocket(map, roomId));
+    redraw();
+    panel.post("notify", { text: `${selection.size} room(s) selected — right-click one for what to do with them.` });
+  } else if (action === "rename") {
     const r = getRoom(map, roomId); if (!r) return;
     const name = await inlinePrompt("Rename room", r.name || "");
     if (name != null) applyEdit(() => renameRoom(map, roomId, name));
@@ -423,6 +494,12 @@ function bindMenuActions(nodes, roomId) {
 }
 
 function openRoomMenu(clientX, clientY, roomId) {
+  if (selection.size > 1 && selection.has(roomId)) {
+    panel.menu.show({ x: clientX, y: clientY },
+      bindMenuActions(selectionMenuModel(map, Array.from(selection), listAreas(map)), roomId));
+    return;
+  }
+  if (clearSelection()) redraw();
   const nodes = bindMenuActions(roomMenuModel(map, roomId, listAreas(map)), roomId);
   panel.menu.show({ x: clientX, y: clientY }, nodes);
 }
@@ -771,18 +848,46 @@ $canvas.addEventListener("mousedown", (e) => {
   hideHover();
   dragging = true; movedDuringDrag = false;
   lastX = e.clientX; lastY = e.clientY; downX = e.clientX; downY = e.clientY;
-  dragRoomId = (e.button === 0 && !pocketPreview) ? roomAt(e.clientX, e.clientY) : null;
+  const id = roomAt(e.clientX, e.clientY);
+  const plain = e.button === 0 && !pocketPreview;
+  dragRoomId = plain && !e.shiftKey ? id : null;
+  if (plain && e.shiftKey && !pendingMode && id == null) {
+    const rect = $canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    marquee = { x0: x, y0: y, x1: x, y1: y };
+  }
 });
 window.addEventListener("mousemove", (e) => {
   if (!dragging) return;
   if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 4) movedDuringDrag = true;
+  if (marquee) {
+    const rect = $canvas.getBoundingClientRect();
+    marquee.x1 = e.clientX - rect.left; marquee.y1 = e.clientY - rect.top;
+    redraw();
+    return;
+  }
   if (dragRoomId != null) return;   // room-drag commits on mouseup; no live pan
   panX += e.clientX - lastX; panY += e.clientY - lastY;
   lastX = e.clientX; lastY = e.clientY;
   redraw();
 });
 window.addEventListener("mouseup", (e) => {
-  if (dragging && dragRoomId != null && movedDuringDrag) {
+  if (marquee) {
+    if (movedDuringDrag) {
+      for (const id of roomsInRect(lastLayout, marquee.x0, marquee.y0, marquee.x1, marquee.y1, lastRoomSize)) {
+        selection.add(id);
+      }
+    }
+    marquee = null;
+    redraw();
+  } else if (dragging && dragRoomId != null && movedDuringDrag && selection.size > 1 && selection.has(dragRoomId)) {
+    const r = getRoom(map, dragRoomId);
+    const cell = r && cellFromClient(e.clientX, e.clientY, r);
+    if (cell && (cell.x !== r.coords.x || cell.y !== r.coords.y)
+        && !applyEdit(() => moveRooms(map, Array.from(selection), cell.x - r.coords.x, cell.y - r.coords.y))) {
+      panel.post("notify", { text: "Some of those cells are already occupied." });
+    }
+  } else if (dragging && dragRoomId != null && movedDuringDrag) {
     const r = getRoom(map, dragRoomId);
     if (r) {
       const cell = cellFromClient(e.clientX, e.clientY, r);
@@ -812,7 +917,16 @@ $canvas.addEventListener("click", (e) => {
     if (id != null) resolvePendingMode(id);
     return;                                   // consume the click either way
   }
+  if (e.shiftKey) {
+    if (id != null) {
+      if (selection.has(id)) selection.delete(id); else selection.add(id);
+      redraw();
+    }
+    return;
+  }
+  const cleared = clearSelection();
   if (id != null) { focusRoom(id); previewPath(id); }
+  else if (cleared) redraw();
 });
 function resolvePendingMode(targetId) {
   const mode = pendingMode;
@@ -878,6 +992,7 @@ window.addEventListener("keydown", (e) => {
     panel.post("notify", { text: "Cancelled." });
     return;
   }
+  if (e.key === "Escape" && clearSelection()) { redraw(); return; }
   const mod = e.metaKey || e.ctrlKey;
   if (!mod) return;
   if (e.key.toLowerCase() === "z" && !e.shiftKey) {

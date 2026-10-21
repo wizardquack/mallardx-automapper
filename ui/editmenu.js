@@ -76,7 +76,7 @@ function linksSubmenu(map, room) {
 }
 
 function areaSubmenu(room, areas, action) {
-  const others = areas.filter((a) => a.id !== room.areaId);
+  const others = areas.filter((a) => room.areaId == null || a.id !== room.areaId);
   const nodes = others.map((a) => ({
     label: a.label || `Area ${a.id}`,
     action,
@@ -111,7 +111,30 @@ export function roomMenuModel(map, id, areas) {
     { separator: true },
     { label: "Move to area", submenu: areaSubmenu(room, areas, "moveToArea") },
     { label: "Move connected pocket", submenu: areaSubmenu(room, areas, "movePocket") },
+    { label: "Select connected pocket", action: "selectPocket" },
     { separator: true },
     { label: "Delete room", danger: true, action: "deleteRoom" },
+  ];
+}
+
+// The menu for several selected rooms. Colour and symbol apply to each; the
+// area move keeps their shape (edits.js movePocket). Actions take the ids
+// from the caller's selection.
+export function selectionMenuModel(map, ids, areas) {
+  const rooms = ids.map((id) => map.rooms[id]).filter(Boolean);
+  if (rooms.length === 0) return [];
+  const colour = colorSubmenu({ color: rooms.every((r) => r.color === rooms[0].color) ? rooms[0].color : undefined })
+    .map((n) => (n.action ? { ...n, action: n.action === "setColor" ? "selSetColor" : "selSetColorCustom" } : n))
+    .map((n) => (n.label === "Clear" ? { ...n, disabled: !rooms.some((r) => r.color) } : n));
+  const n = rooms.length;
+  return [
+    { label: `${n} rooms selected`, header: true },
+    { label: "Colour", submenu: colour },
+    { label: "Symbol…", action: "selSetSymbol" },
+    { separator: true },
+    { label: "Move to area", submenu: areaSubmenu({ areaId: null }, areas, "selMoveToArea") },
+    { label: "Clear selection", action: "selClear" },
+    { separator: true },
+    { label: `Delete ${n} rooms`, danger: true, action: "selDelete" },
   ];
 }

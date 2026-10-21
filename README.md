@@ -144,6 +144,12 @@ Right-click any room for the edit menu:
 - **Exits ▸** — delete an exit, toggle one-way/two-way, or **Add exit ▸** a direction then click the target room.
 - **Move to area ▸** / **Move connected pocket ▸** — reassign a room, or flood-fill an enclosed pocket and confirm the highlighted set before moving it.
 - **Drag** a room to reposition it (snaps to the grid; occupied cells are rejected).
+- **Select several:** shift-click rooms, or shift-drag a box on empty map;
+  **Select connected pocket** picks a room's enclosed pocket. Right-click a
+  selected room for **Colour ▸**, **Symbol…**, **Move to area ▸** (keeping
+  their shape) or **Delete N rooms**; drag one to move them all (refused if
+  any would land on another room). Esc or a plain click clears it. Rooms
+  the server places by coordinates go back on your next visit.
 - **Cmd/Ctrl+Z** undo, **Cmd/Ctrl+Shift+Z** redo. A real in-game movement clears the undo history.
 
 ## Development
