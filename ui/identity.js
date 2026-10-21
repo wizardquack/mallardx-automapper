@@ -172,6 +172,13 @@ function resolveFingerprint(map, seen, pendingDir, cfg) {
   const fp = seen.fp;
   const areaId = resolveArea(map, seen, prev, cfg || {});
 
+  // A room shown again with no move (a `look`) is the room you're in, not a
+  // twin of it.
+  if (prev && !pendingDir && prev.fp === fp) {
+    refresh(prev, seen);
+    return { room: prev, created: false };
+  }
+
   // (a) prev already records an exit this way — if the room there fingerprints
   //     the same, we've simply walked a known edge. Any stored direction,
   //     in/out included, so a doorway walked twice doesn't mint a twin.

@@ -108,3 +108,13 @@ describe("resolveRoomSeen — fingerprint path", () => {
     expect(Object.keys(m.rooms).length).toBe(2);
   });
 });
+
+describe("resolveRoomSeen — fingerprint re-show", () => {
+  it("a room shown again with no move is the same room", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, fp("Square", "n e"), null, {}).room;
+    const again = resolveRoomSeen(m, fp("Square", "n e"), null, {});
+    expect(again).toEqual({ room: a, created: false });
+    expect(Object.keys(m.rooms)).toHaveLength(1);
+  });
+});
