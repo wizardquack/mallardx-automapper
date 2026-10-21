@@ -33,7 +33,7 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
     refreshAreaName(map, existing, seen);
     refreshAnnotations(map, existing, seen);
     // Server coordinates win, even over where the room was placed before.
-    if (seen.coords) placeAtServerCoords(map, existing, seen.coords);
+    if (seen.coords) placeAtServerCoords(map, existing, seen.coords, seen.wrap);
     // Record the traversed edge even when the destination already exists —
     // backtracks and loop-closing hops are the only chance to capture it.
     linkTraversal(map, prev, existing, dir, !inferred);
@@ -59,7 +59,7 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
 
   const room = addRoom(map, { key: seen.key, name: seen.name, env: seen.env, coords, areaId });
   refreshAnnotations(map, room, seen);
-  if (seen.coords) placeAtServerCoords(map, room, seen.coords);
+  if (seen.coords) placeAtServerCoords(map, room, seen.coords, seen.wrap);
   linkTraversal(map, prev, room, dir, !inferred);
   recordExitKeys(room, seen.exits);
   linkKnownExits(map, room, seen.exits);
@@ -89,11 +89,14 @@ function refreshAnnotations(map, room, seen) {
 // Put a room at the cell the server says it's in, and mark it so. A room
 // already in that cell of the area that the server didn't place is moved to
 // the area's first free cell; one the server did place stays (two rooms the
-// server puts in one cell is the server's call).
-function placeAtServerCoords(map, room, sc) {
+// server puts in one cell is the server's call). Where the server says x
+// comes round (a ring), the room keeps it as `wrapX` for render.js.
+function placeAtServerCoords(map, room, sc, wrap) {
   const c = fromServer(sc);
   room.coords = c;
   room.serverCoords = true;
+  if (wrap) room.wrapX = wrap.x;
+  else delete room.wrapX;
   for (const id of Object.keys(map.rooms)) {
     const other = map.rooms[id];
     if (other === room || other.areaId !== room.areaId || other.serverCoords) continue;

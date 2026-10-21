@@ -41,11 +41,12 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
   for (const id of Object.keys(map.rooms)) {
     const r = map.rooms[id];
     if (r.areaId !== viewArea || r.coords.z !== z) continue;
-    const px = cx + (r.coords.x - anchor.coords.x) * scale;
-    const py = cy + (r.coords.y - anchor.coords.y) * scale;
-    placed[id] = { px, py };
+    const cell = viewCell(r, anchor);
+    const px = cx + (cell.x - anchor.coords.x) * scale;
+    const py = cy + (cell.y - anchor.coords.y) * scale;
+    placed[id] = { px, py, cell, wrapX: r.wrapX };
     rooms.push({
-      id, px, py,
+      id, px, py, cell,
       isCurrent: cur != null && id === cur.id,
       onPath: pathRooms ? pathRooms.has(id) : false,
       env: r.env,
@@ -73,14 +74,44 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       if (seen.has(key)) continue;
       seen.add(key);
       const a = placed[id], b = placed[to];
-      exits.push({
-        x1: a.px, y1: a.py, x2: b.px, y2: b.py,
-        onPath: pathEdges ? pathEdges.has(key) : false,
-      });
+      const onPath = pathEdges ? pathEdges.has(key) : false;
+      const step = wrapStep(a, b);
+      if (step == null) {
+        exits.push({ x1: a.px, y1: a.py, x2: b.px, y2: b.py, onPath });
+      } else {
+        // Across the far side of a ring from the view's centre: each end runs
+        // off the edge toward where the other comes round, not across the map.
+        exits.push({ x1: a.px, y1: a.py, x2: a.px + step * scale, y2: b.py, onPath, seam: true });
+        exits.push({ x1: b.px, y1: b.py, x2: b.px - step * scale, y2: a.py, onPath, seam: true });
+      }
     }
   }
 
   return { rooms, exits, tints, regions, scale };
+}
+
+// Where a room is drawn. On a ring (the server's `wrap`, kept as `wrapX`) x
+// comes round, so the room is drawn at the x nearest the anchor's: the ring
+// is centred on where you are, and its seam is always on the far side.
+export function viewCell(r, anchor) {
+  const w = r.wrapX;
+  if (!w) return { x: r.coords.x, y: r.coords.y };
+  return { x: anchor.coords.x + wrapDelta(r.coords.x - anchor.coords.x, w), y: r.coords.y };
+}
+
+// d brought into [-w/2, w/2).
+function wrapDelta(d, w) {
+  return ((((d + w / 2) % w) + w) % w) - w / 2;
+}
+
+// For an exit between two placed rooms on one ring that are drawn further
+// apart than the way round is, the x step from a to b the short way; else null.
+function wrapStep(a, b) {
+  const w = a.wrapX;
+  if (!w || b.wrapX !== w) return null;
+  const drawn = b.cell.x - a.cell.x;
+  const step = wrapDelta(drawn, w);
+  return step === drawn ? null : step;
 }
 
 // Region tints and labels. A tint is a cell under each room in a region, plus
@@ -93,11 +124,13 @@ function regionLayout(map, rooms, areaId, z, anchor, cx, cy, scale) {
   const tints = [], regions = [];
   const inRegion = rooms.filter((r) => r.region);
   if (inRegion.length === 0) return { tints, regions };
-  const cell = (r) => map.rooms[r.id].coords;
+  const cell = (r) => r.cell;
   const occupied = new Set();
   for (const id of Object.keys(map.rooms)) {
     const r = map.rooms[id];
-    if (r.areaId === areaId && r.coords.z === z) occupied.add(`${r.coords.x},${r.coords.y}`);
+    if (r.areaId !== areaId || r.coords.z !== z) continue;
+    const c = viewCell(r, anchor);
+    occupied.add(`${c.x},${c.y}`);
   }
   const at = new Map(inRegion.map((r) => [`${cell(r).x},${cell(r).y}`, r]));
   const toPx = (x, y) => ({ px: cx + (x - anchor.coords.x) * scale, py: cy + (y - anchor.coords.y) * scale });
@@ -176,8 +209,11 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
     ctx.lineTo(e.x2, e.y2);
     ctx.strokeStyle = e.onPath ? c.exitPath : c.exit;
     ctx.lineWidth = e.onPath ? 4 : 2;
+    // A way across a ring's seam is dashed: it goes on round, out of view.
+    if (ctx.setLineDash) ctx.setLineDash(e.seam ? [4, 3] : []);
     ctx.stroke();
   }
+  if (ctx.setLineDash) ctx.setLineDash([]);
   for (const r of layout.rooms) {
     ctx.fillStyle = r.fill || envColor(r.env);
     ctx.fillRect(r.px - half, r.py - half, roomSize, roomSize);

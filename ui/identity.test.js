@@ -265,6 +265,14 @@ describe("resolveRoomSeen — server coordinates", () => {
     expect(b.serverCoords).toBe(true);
   });
 
+  it("keeps where the server says x comes round, and drops it when it stops saying so", () => {
+    const m = createMap();
+    const a = resolveRoomSeen(m, { key: "A", name: "A", coords: { x: 23, y: 0, z: 0 }, wrap: { x: 24 } }, null).room;
+    expect(a.wrapX).toBe(24);
+    resolveRoomSeen(m, { key: "A", name: "A", coords: { x: 23, y: 0, z: 0 } }, null);
+    expect(a.wrapX).toBeUndefined();
+  });
+
   it("moves an already-placed room to its server coords on a later visit", () => {
     const m = createMap();
     resolveRoomSeen(m, { key: "A", name: "A" }, null);

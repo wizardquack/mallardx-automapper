@@ -27,6 +27,10 @@ richer frame.
   arrives with coords is placed there, and moved there if the mapper had put
   it somewhere else; any room the server didn't place that sat in that cell
   is moved aside. Without coords, rooms are placed by movement as usual.
+- **`wrap`** (extension) — `{x: n}` beside `coords`, where the room's x comes
+  round at n (a ring: x n-1 sits beside x 0). The ring is drawn centred on the
+  room you're in, each room at the x nearest yours, so its seam is always on
+  the far side; a way across that side runs off each edge, dashed.
 - **`area`** (extension) — the area's key: rooms are grouped by it, one area
   shown at a time.
 - **`areaName`** (extension) — the area's name, shown in the area picker. If

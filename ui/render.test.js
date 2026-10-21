@@ -114,6 +114,52 @@ describe("computeLayout", () => {
 import { computeLayout as computeLayoutP2 } from "./render.js";
 import { createMap as createMapP2, addRoom as addRoomP2, linkExit as linkExitP2 } from "./graph.js";
 
+describe("computeLayout: a ring's seam", () => {
+  // A ring of 24 with rooms every 6: 0 (12:00), 6, 12, 18, linked east round.
+  function ring() {
+    const m = createMap();
+    const rooms = [0, 6, 12, 18].map((x) => {
+      const r = addRoom(m, { key: `R${x}`, name: `R${x}`, coords: { x, y: 0, z: 0 } });
+      r.wrapX = 24;
+      return r;
+    });
+    rooms.forEach((r, i) => linkExit(m, r.id, "e", rooms[(i + 1) % 4].id));
+    return { m, rooms };
+  }
+
+  it("draws the ring centred on the current room, across the seam", () => {
+    const { m, rooms } = ring();
+    setCurrent(m, rooms[3].id); // x 18
+    const layout = computeLayout(m, { cx: 0, cy: 0, scale: 10 });
+    const px = (r) => layout.rooms.find((l) => l.id === r.id).px;
+    // 12:00 is drawn just east of 18, not 18 cells west of it.
+    expect(px(rooms[0])).toBe(60);
+    expect(px(rooms[1])).toBe(-120);
+    expect(px(rooms[2])).toBe(-60);
+    expect(layout.exits).toContainEqual({ x1: 0, y1: 0, x2: 60, y2: 0, onPath: false });
+  });
+
+  it("runs a way across the far side off each edge, dashed, not across the map", () => {
+    const { m, rooms } = ring();
+    setCurrent(m, rooms[0].id);
+    const layout = computeLayout(m, { cx: 0, cy: 0, scale: 10 });
+    // 6 is drawn at +60, 18 at -60, and 12 at -120: the way 6 → 12 crosses the far side.
+    const seam = layout.exits.filter((e) => e.seam);
+    expect(seam).toHaveLength(2);
+    expect(seam).toContainEqual({ x1: 60, y1: 0, x2: 120, y2: 0, onPath: false, seam: true });
+    expect(seam).toContainEqual({ x1: -120, y1: 0, x2: -180, y2: 0, onPath: false, seam: true });
+  });
+
+  it("leaves rooms without a wrap where they are", () => {
+    const { m, rooms } = ring();
+    for (const r of rooms) delete r.wrapX;
+    setCurrent(m, rooms[3].id);
+    const layout = computeLayout(m, { cx: 0, cy: 0, scale: 10 });
+    expect(layout.rooms.find((l) => l.id === rooms[0].id).px).toBe(-180);
+    expect(layout.exits.some((e) => e.seam)).toBe(false);
+  });
+});
+
 describe("computeLayout: viewedZ + path highlight (Phase 2)", () => {
   it("honors an explicit viewedZ override instead of the current room's z", () => {
     const m = createMapP2();

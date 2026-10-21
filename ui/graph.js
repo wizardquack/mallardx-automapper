@@ -24,6 +24,8 @@ export function createMap() {
 //   exitKeys     — { [dir]: targetKey }, the exits the room last reported by key.
 //   serverCoords — true once the server has placed the room by coordinates;
 //                  such a room isn't displaced by another the server places.
+//   wrapX        — where the server says the room's x comes round (a ring's
+//                  seam); render.js draws the ring centred on the view.
 //   tags, region — the server's features and part-of-area key (annotate.js).
 // and fields only the user sets (edits.js): color, symbol, note.
 // Areas may carry `regions` — { [regionKey]: name }.

@@ -36,6 +36,17 @@ describe("seenFromFrame coords", () => {
   });
 });
 
+describe("seenFromFrame wrap", () => {
+  it("passes a ring's wrap with its coords, and drops it without them or malformed", () => {
+    const c = { x: 23, y: 0, z: 0 };
+    expect(seenFromFrame({ key: "A", coords: c, wrap: { x: 24 } }).wrap).toEqual({ x: 24 });
+    expect(seenFromFrame({ key: "A", wrap: { x: 24 } }).wrap).toBeUndefined();
+    expect(seenFromFrame({ key: "A", coords: c, wrap: { x: 1.5 } }).wrap).toBeUndefined();
+    expect(seenFromFrame({ key: "A", coords: c, wrap: 24 }).wrap).toBeUndefined();
+    expect(seenFromFrame({ key: "A", coords: c }).wrap).toBeUndefined();
+  });
+});
+
 describe("seenFromFrame areaName", () => {
   it("passes a non-empty areaName through", () => {
     expect(seenFromFrame({ key: "A", areaTag: "tiss", areaName: "T.I.S.S." }).areaName).toBe("T.I.S.S.");

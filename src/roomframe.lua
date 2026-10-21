@@ -39,6 +39,14 @@ function M.coords(c)
   return { x = x, y = y, z = z }
 end
 
+-- Where a layout's x comes round (extension `wrap`, { x = n }), on a ring: a
+-- whole number above 1, else nil.
+function M.wrap(w)
+  if type(w) ~= "table" or not finite(w.x) then return nil end
+  if w.x ~= math.floor(w.x) or w.x < 2 then return nil end
+  return { x = w.x }
+end
+
 local function str(v)
   if type(v) == "string" and v ~= "" then return v end
   if type(v) == "number" then return tostring(v) end
@@ -99,6 +107,7 @@ function M.normalize(data, with_exits)
     areaField = area_field,
     areaTag = area_tag,
     coords = M.coords(data.coords),
+    wrap = M.wrap(data.wrap),
     -- The area's display name (mudstd extension); `area` stays its key.
     -- Strings and numbers only: a JSON null may arrive as a userdata sentinel.
     areaName = (type(data.areaName) == "string" or type(data.areaName) == "number")

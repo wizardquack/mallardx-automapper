@@ -30,6 +30,13 @@ check("non-numeric part", roomframe.coords({ x = "1", y = 2, z = 0 }), nil)
 check("NaN part", roomframe.coords({ 0 / 0, 1, 0 }), nil)
 check("empty table", roomframe.coords({}), nil)
 
+-- wrap: a ring's x comes round at a whole number above 1.
+check("wrap", roomframe.wrap({ x = 24 }) and roomframe.wrap({ x = 24 }).x, 24)
+check("wrap fraction", roomframe.wrap({ x = 2.5 }), nil)
+check("wrap too small", roomframe.wrap({ x = 1 }), nil)
+check("wrap missing", roomframe.wrap(nil), nil)
+check("normalize wrap", roomframe.normalize({ id = "r", coords = { x = 23, y = 0, z = 0 }, wrap = { x = 24 } }).wrap.x, 24)
+
 -- normalize: key, area signal, coords passthrough, exits only when asked.
 local r = roomframe.normalize({
   id = "tiss:rim-3", name = "Rim 3:00", area = "tiss",
