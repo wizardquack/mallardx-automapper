@@ -960,7 +960,8 @@ const $linkBar = document.querySelector(".link-bar");
 function offerLink(fromId, toId) {
   linkOffer = { fromId, toId };
   const from = getRoom(map, fromId);
-  $linkBar.querySelector(".link-bar-label").textContent =
+  const $label = $linkBar.querySelector(".link-bar-label");
+  $label.textContent = $label.title =
     `No known way here from ${from ? (from.name || `#${fromId}`) : `#${fromId}`}.`;
   $linkBar.hidden = false;
 }

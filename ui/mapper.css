@@ -76,33 +76,37 @@ body {
   border-color: var(--danger, #991b1b);
   color: var(--accent-fg, #fee2e2);
 }
-.pocket-bar {
+/* Floating prompts over the map: the pocket bar (move rooms to an area) and the
+   link bar (offered after a move the map knows no way for — a teleport, a lift).
+   One row when there's room, the label truncating first; in a narrow panel the
+   label gets its own row above the buttons, which then ellipsize. Never more. */
+.canvas-wrap { container-type: inline-size; }
+.pocket-bar, .link-bar {
   position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
-  display: flex; gap: 8px; align-items: center; z-index: 40;
+  /* left: 50% leaves shrink-to-fit only half the panel; size to content, capped at the panel. */
+  width: max-content; max-width: calc(100% - 24px);
+  display: flex; gap: 8px; align-items: center;
   background: var(--bg-elevated, #1f2430); color: var(--fg, #e5e7eb);
-  border: 1px solid #f59e0b; border-radius: 6px;
-  padding: 6px 10px; font-size: 12px;
+  border-radius: 6px; padding: 6px 10px; font-size: 12px;
 }
-.pocket-bar button {
-  padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border, #374151);
+.pocket-bar { z-index: 40; border: 1px solid #f59e0b; }
+.link-bar { z-index: 39; border: 1px solid var(--accent, #38bdf8); }
+.pocket-bar-label, .link-bar-label {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bar-actions { flex: none; display: flex; gap: 8px; max-width: 100%; }
+.pocket-bar button, .link-bar button {
+  flex: 0 1 auto; min-width: 0; padding: 4px 10px; border-radius: 4px;
+  border: 1px solid var(--border, #374151);
   background: var(--border, #374151); color: var(--fg, #e5e7eb); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pocket-bar .pocket-confirm { background: #b45309; border-color: #f59e0b; color: #fff8ec; }
-
-/* Offered after a move the map knows no way for (a teleport, a lift). */
-.link-bar {
-  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
-  display: flex; gap: 8px; align-items: center; z-index: 39; max-width: calc(100% - 24px);
-  background: var(--bg-elevated, #1f2430); color: var(--fg, #e5e7eb);
-  border: 1px solid var(--accent, #38bdf8); border-radius: 6px;
-  padding: 6px 10px; font-size: 12px;
+.link-bar .link-dismiss { flex: none; padding: 4px 7px; }
+@container (max-width: 480px) {
+  .pocket-bar, .link-bar { flex-direction: column; row-gap: 6px; }
+  .pocket-bar-label, .link-bar-label { max-width: 100%; }
 }
-.link-bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.link-bar button {
-  flex: none; padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border, #374151);
-  background: var(--border, #374151); color: var(--fg, #e5e7eb); cursor: pointer;
-}
-.link-bar .link-dismiss { padding: 4px 7px; }
 
 /* ── Learn mode overlay ─────────────────────────────────────────────────── */
 .learn-panel {
