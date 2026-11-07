@@ -122,6 +122,25 @@ function fromServer(c) {
 // yet on the map — the main case), then from prev's stored edges. A compass
 // direction is preferred over in/out when both lead there, since it can place
 // the room. Null when prev is unknown, is the same room, or has no such exit.
+// Would moving `dir` out of the current room contradict arriving at the room
+// keyed `key`? True when the map already knows `dir` leads somewhere else (a
+// walked edge or a reported exit target), or knows a different exit leads
+// here. Used to catch a queued-moves list that has fallen out of step with
+// the server (a blocked move answered by no room frame).
+export function contradicts(map, dir, key) {
+  const prev = currentRoom(map);
+  if (!prev || !dir || key == null || prev.key === key) return false;
+  const walked = prev.exits[dir];
+  if (walked) {
+    const target = getRoomByKey(map, key);
+    return !target || walked.to !== target.id;
+  }
+  const reported = (prev.exitKeys || {})[dir];
+  if (reported != null) return String(reported) !== String(key);
+  // `dir` is unexplored; it contradicts only if another exit is known to lead here.
+  return inferDirection(map, prev, key) != null;
+}
+
 function inferDirection(map, prev, key) {
   if (!prev || key == null || prev.key === key) return null;
   const found = [];

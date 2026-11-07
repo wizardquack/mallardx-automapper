@@ -117,4 +117,4 @@ description = "Regex matching the exits line, with ONE capture group for the exi
 type = "string"
 default = ""
 label = "Movement-failure pattern (regex)"
-description = "Optional regex matching a blocked-move message (e.g. '^You can''t go that way'). When it fires, the pending step is cancelled so no phantom room is created."
+description = "Optional regex matching a blocked-move message (e.g. '^You can''t go that way'). When it fires, the oldest pending step is cancelled so no phantom room or link is created. Works with or without capture enabled — set it on GMCP worlds too if you queue moves."

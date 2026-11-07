@@ -76,10 +76,19 @@ local function nonempty(s)
 end
 
 local function register_capture_triggers()
+  -- The failure pattern also serves GMCP worlds: a blocked move gets no room
+  -- frame, so without it a burst of queued moves would fall a step behind.
+  local fail_pat = nonempty(settings.get("capture_fail"))
+  if fail_pat then
+    mud.trigger(fail_pat, function()
+      capture.reset()
+      panel:post("move_fail", {})
+    end)
+  end
+
   if settings.get("capture_enabled") ~= true then return end
   local name_pat = nonempty(settings.get("capture_room_name"))
   local exits_pat = nonempty(settings.get("capture_exits"))
-  local fail_pat = nonempty(settings.get("capture_fail"))
 
   if name_pat then
     mud.trigger(name_pat, function(m) capture.on_name(m:raw(1)) end)
@@ -90,12 +99,6 @@ local function register_capture_triggers()
       if cap then
         panel:post("capture", { name = cap.name, exits = cap.exits })
       end
-    end)
-  end
-  if fail_pat then
-    mud.trigger(fail_pat, function()
-      capture.reset()
-      panel:post("move_fail", {})
     end)
   end
 end

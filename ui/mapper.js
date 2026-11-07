@@ -13,13 +13,14 @@ import { addLink, deleteLink, setLinkOneWay, setLinkField, linksOf, hasWay } fro
 import { createHistory } from "./history.js";
 import { roomMenuModel, selectionMenuModel } from "./editmenu.js";
 import { addArea } from "./graph.js";
-import { resolveRoomSeen } from "./identity.js";
+import { resolveRoomSeen, contradicts } from "./identity.js";
 import { seenFromFrame, terrainsFromFrame } from "./seen.js";
 import { fingerprint, suggestNamePattern, suggestExitsPattern } from "./fingerprint.js";
 import { computeLayout, draw, roomsInRect, DEFAULT_COLORS } from "./render.js";
 import { findPath } from "./pathfind.js";
 import { matchRooms, resolveDestination } from "./search.js";
 import { createWalk } from "./walk.js";
+import { createMoveQueue } from "./movequeue.js";
 
 const $name = document.querySelector(".room-name");
 const $canvas = document.querySelector(".map-canvas");
@@ -30,7 +31,7 @@ const ctx = $canvas.getContext("2d");
 const now = () => performance.now();
 
 let map = createMap();
-let pendingDir = null;
+const moves = createMoveQueue();   // sent directions awaiting their room, oldest first
 let viewedAreaId = null;              // which area the panel is showing
 let viewedZ = null;                   // explicit floor override; null = follow current
 let focusAnchorId = null;             // transient center-on-this-room; cleared on move
@@ -631,7 +632,7 @@ panel.on("load", (frame) => {
   if (frame && frame.cfg) cfg = { ...cfg, ...frame.cfg };
   if (frame && frame.walk) walkCfg = { ...walkCfg, ...frame.walk };
   loaded = true;
-  sawRoom = false; hideLinkOffer();
+  sawRoom = false; hideLinkOffer(); moves.clear();
   if (pendingTerrains) { setTerrains(map, pendingTerrains); pendingTerrains = null; }
   stopWalkTimer(); walk = null; highlightPath = null;
   focusCurrentArea();
@@ -639,9 +640,24 @@ panel.on("load", (frame) => {
   redraw();
 });
 
+// Queued, not overwritten: a paced MUD answers a burst of moves one room at a
+// time, and each arrival belongs to the oldest unanswered direction.
 panel.on("moved", (frame) => {
-  pendingDir = frame && frame.dir ? frame.dir : null;
+  if (frame && frame.dir) moves.push(frame.dir);
 });
+
+// The direction that brought us to `seen`: the oldest queued move — unless the
+// room re-reported itself (no move happened, keep the queue), or the map knows
+// that direction leads elsewhere (the queue lost a step to a blocked move:
+// drop it all and let resolveRoomSeen infer from known exits).
+function takeMoveFor(seen) {
+  if (seen.fp) return moves.shift();   // fingerprints: no identity to check against
+  const prev = currentRoom(map);
+  if (prev && prev.key === seen.key) return null;
+  const dir = moves.peek();
+  if (dir != null && contradicts(map, dir, seen.key)) { moves.clear(); return null; }
+  return moves.shift();
+}
 
 // Shared ingest for a resolved "room seen" — from GMCP room.info (a `key`) or
 // non-GMCP capture (a fingerprint `fp`). Correlates with the pending movement
@@ -649,6 +665,7 @@ panel.on("moved", (frame) => {
 function ingestRoom(seen) {
   if (!loaded) return;
   const walking = !!(walk && walk.isActive());
+  let pendingDir = takeMoveFor(seen);
   if (walking) {
     const d = walk.pendingDir();
     if (d != null) pendingDir = d;
@@ -664,7 +681,6 @@ function ingestRoom(seen) {
   }
   hideHover();   // the view recentres; a card would point at where the room was
   history.clear();
-  pendingDir = null;
   if (walk && walk.isActive()) {
     dispatchWalkActions(walk.onRoomSeen(map.currentId, now()));
   }
@@ -696,10 +712,10 @@ panel.on("capture", (frame) => {
 
 // Movement-failure guard: a blocked move produced no room change, so drop the
 // pending direction — otherwise the next reprint would forge a phantom link.
-panel.on("move_fail", () => { pendingDir = null; });
+panel.on("move_fail", () => { moves.shift(); });
 
 // A new session: where you log in isn't a move to offer a link for.
-panel.on("connected", () => { sawRoom = false; hideLinkOffer(); });
+panel.on("connected", () => { sawRoom = false; hideLinkOffer(); moves.clear(); });
 
 panel.on("recenter", () => { focusCurrentArea(); redraw(); });
 
