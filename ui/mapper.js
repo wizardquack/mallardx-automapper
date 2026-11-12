@@ -150,9 +150,14 @@ function redraw() {
   if (viewedAreaId != null && !listAreas(map).some((a) => a.id === viewedAreaId)) {
     focusCurrentArea();
   }
+  // Back the canvas with device pixels so text and lines stay sharp on HiDPI
+  // screens; everything below still draws in CSS pixels via the transform.
+  const dpr = window.devicePixelRatio || 1;
   const cw = $canvas.clientWidth, ch = $canvas.clientHeight;
-  if ($canvas.width !== cw) $canvas.width = cw;
-  if ($canvas.height !== ch) $canvas.height = ch;
+  const bw = Math.round(cw * dpr), bh = Math.round(ch * dpr);
+  if ($canvas.width !== bw) $canvas.width = bw;
+  if ($canvas.height !== bh) $canvas.height = bh;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cw, ch);
   const layout = computeLayout(map, {
     cx: cw / 2 + panX,
@@ -877,7 +882,7 @@ function cellFromClient(clientX, clientY, room) {
   if (!anchor) return null;
   const rect = $canvas.getBoundingClientRect();
   const scale = ZOOMS[zoomIdx];
-  const cx = $canvas.width / 2 + panX, cy = $canvas.height / 2 + panY;
+  const cx = $canvas.clientWidth / 2 + panX, cy = $canvas.clientHeight / 2 + panY;
   const px = clientX - rect.left, py = clientY - rect.top;
   const x = Math.round((px - cx) / scale) + anchor.coords.x;
   const y = Math.round((py - cy) / scale) + anchor.coords.y;
@@ -1141,6 +1146,13 @@ window.addEventListener("keydown", (e) => {
   }
 });
 window.addEventListener("resize", redraw);
+// Moving the window between a Retina and a non-Retina display changes the
+// pixel ratio without always firing resize; repaint at the new density.
+(function watchPixelRatio() {
+  if (!window.matchMedia) return;
+  const mq = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+  mq.addEventListener("change", () => { redraw(); watchPixelRatio(); }, { once: true });
+})();
 // Repaint the canvas when the host switches theme (CSS handles the DOM chrome
 // on its own; the canvas has to be told). Mallard re-pushes the theme vars
 // before firing this, so themeColors() reads the new palette.
