@@ -155,6 +155,18 @@ describe("resolveRoomSeen — mudstd.room explicit exits", () => {
     expect(b.exits.w).toEqual({ to: a.id });
   });
 
+  it("closing a loop links back from a room that already listed the arrival", () => {
+    // Start at D (lists n → C), walk round D → W1 → W2 → C; arriving at C
+    // with an inferred move links C → D, and D's own earlier report links D → C.
+    const m = createMap();
+    const d = resolveRoomSeen(m, { key: "D", name: "Start", exits: [{ dir: "n", toKey: "C" }, { dir: "w", toKey: "W" }] }, null).room;
+    resolveRoomSeen(m, { key: "W", name: "West", exits: [{ dir: "e", toKey: "D" }, { dir: "n", toKey: "X" }] }, "w");
+    resolveRoomSeen(m, { key: "X", name: "North-west", exits: [{ dir: "s", toKey: "W" }, { dir: "e", toKey: "C" }] }, "n");
+    const c = resolveRoomSeen(m, { key: "C", name: "North", exits: [{ dir: "w", toKey: "X" }, { dir: "s", toKey: "D" }] }, "e").room;
+    expect(c.exits.s).toEqual({ to: d.id });
+    expect(d.exits.n).toEqual({ to: c.id });
+  });
+
   it("is idempotent and tolerates a missing exits field", () => {
     const m = createMap();
     resolveRoomSeen(m, { key: "A", name: "A" }, null);           // no exits field

@@ -9,7 +9,7 @@ import { vector, isCompass, isDirection } from "./directions.js";
 import { resolveArea, refreshAreaName } from "./area.js";
 import { applyServerLinks, linkLinksInto } from "./links.js";
 import {
-  refreshAnnotations, placeAtServerCoords, recordExitKeys, linkKnownExits, firstFreeCell,
+  refreshAnnotations, placeAtServerCoords, recordExitKeys, linkKnownExits, linkExitKeysInto, firstFreeCell,
 } from "./identity.js";
 
 // Where a room waits until it's placed: NaN matches no cell, so it neither
@@ -67,18 +67,6 @@ export function importChart(map, rooms, cfg) {
   placeByExits(map, entries.map((e) => e.room).filter((r) => unplaced.has(r.id)));
 
   return { created, updated };
-}
-
-// Rooms that already reported an exit to `room` by key (before it was on the
-// map) get that exit now.
-function linkExitKeysInto(map, room) {
-  for (const id of Object.keys(map.rooms)) {
-    const r = map.rooms[id];
-    if (r === room || !r.exitKeys) continue;
-    for (const dir of Object.keys(r.exitKeys)) {
-      if (r.exitKeys[dir] === room.key && isDirection(dir) && !r.exits[dir]) linkExit(map, r.id, dir, room.id);
-    }
-  }
 }
 
 // Place each room one compass step from a placed neighbour in its area, in

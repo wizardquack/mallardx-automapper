@@ -71,6 +71,7 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
   linkTraversal(map, prev, room, dir, !inferred);
   recordExitKeys(room, seen.exits);
   linkKnownExits(map, room, seen.exits);
+  linkExitKeysInto(map, room);
   applyServerLinks(map, room, seen.links, (k) => getRoomByKey(map, k));
   linkLinksInto(map, room);
   setCurrent(map, room.id);
@@ -177,6 +178,20 @@ export function recordExitKeys(room, exits) {
   room.exitKeys = byDir;
 }
 
+// Rooms that already reported an exit to `room` by key (before it was on the
+// map) get that exit now — so closing a loop links both ways, not just the
+// arriving room's side.
+export function linkExitKeysInto(map, room) {
+  if (room.key == null) return;
+  for (const id of Object.keys(map.rooms)) {
+    const r = map.rooms[id];
+    if (r === room || !r.exitKeys) continue;
+    for (const dir of Object.keys(r.exitKeys)) {
+      if (r.exitKeys[dir] === room.key && isDirection(dir) && !r.exits[dir]) linkExit(map, r.id, dir, room.id);
+    }
+  }
+}
+
 // A captured (non-GMCP) room's exits line, as directions: the exits it has,
 // walked or not, so the map can show the ones not taken yet.
 function recordExitDirs(room, dirs) {
@@ -187,8 +202,9 @@ function recordExitDirs(room, dirs) {
 // mudstd.room.info reports each room's exits with the neighbour's target key.
 // Link the FORWARD edge to any neighbour we already know (loop closure without
 // walking that corridor). We never fabricate the reverse or create stub rooms:
-// the reverse arrives when the neighbour reports its own exits, and unknown
-// targets link later once visited. Idempotent — safe to re-run every visit.
+// the reverse comes from the neighbour's own report — now, if it already
+// reported it (linkExitKeysInto), else when it next does. Idempotent — safe
+// to re-run every visit.
 export function linkKnownExits(map, room, exits) {
   if (!Array.isArray(exits)) return;
   for (const ex of exits) {
