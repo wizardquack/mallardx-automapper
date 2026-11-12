@@ -277,6 +277,17 @@ function startWalk(toId) {
   dispatchWalkActions(actions);
 }
 
+// Out by an exit to an area not on the map (a stub card with no room): from
+// its room, take it; from anywhere else, walk to its room first.
+function goOut(card) {
+  const cur = currentRoom(map);
+  if (cur && cur.id === card.from) {
+    highlightPath = null;
+    panel.post("walk_send", { cmd: card.dir });
+    redraw();
+  } else startWalk(card.from);
+}
+
 function previewPath(toId) {
   const cur = currentRoom(map);
   if (!cur) return;
@@ -845,6 +856,12 @@ function cardAtClient(clientX, clientY) {
 const DIR_NAMES = { n: "north", s: "south", e: "east", w: "west", ne: "northeast", nw: "northwest", se: "southeast", sw: "southwest" };
 // Hover card for a stub card: where it leads, and what a click does.
 function cardTooltip(k) {
+  if (k.unmapped) {
+    // The server named the area, but nobody's been through: no room to view.
+    const here = currentRoom(map);
+    const body = here && here.id === k.from ? "Not mapped yet · double-click to go" : "Not mapped yet · double-click to walk to it";
+    return { title: k.label, rows: [{ label: "Exit", value: DIR_NAMES[k.dir] || k.dir }], body };
+  }
   const to = getRoom(map, k.to);
   const area = to && getArea(map, to.areaId);
   const rows = [{ label: "Exit", value: DIR_NAMES[k.dir] || k.dir }];
@@ -914,13 +931,13 @@ $canvas.addEventListener("mousemove", (e) => {
 });
 // The same, over a stub card; its hover key is "card:" + where and which way.
 function hoverCard(k) {
-  const key = `card:${k.to}|${k.dir}`;
+  const key = `card:${k.from}|${k.dir}`;
   if (key === hoverId) return;
   hideHover();
   hoverId = key;
   hoverTimer = setTimeout(() => {
     hoverTimer = null;
-    if (!getRoom(map, k.to)) return;
+    if (!k.unmapped && !getRoom(map, k.to)) return;
     const rect = $canvas.getBoundingClientRect();
     panel.tooltip.show({ x: rect.left + k.l, y: rect.top + k.t, width: k.r - k.l, height: k.b - k.t }, cardTooltip(k));
   }, 350);
@@ -1006,7 +1023,7 @@ $canvas.addEventListener("click", (e) => {
     else {
       // A card takes you to the other area or floor, to pick the room there.
       const card = cardAtClient(e.clientX, e.clientY);
-      if (card) { hideHover(); focusRoom(card.to); }
+      if (card && !card.unmapped) { hideHover(); focusRoom(card.to); }
     }
     return;                                   // consume the click either way
   }
@@ -1023,8 +1040,14 @@ $canvas.addEventListener("click", (e) => {
   // and look at where it leads (the other area or floor), remembering the
   // room so a double-click walks there though the view has changed under it.
   if (id != null) { previewPath(id); if (cleared && !currentRoom(map)) redraw(); }
+  else if (card && card.unmapped) {
+    // An area not on the map: nothing to view, so show the way to its exit.
+    clickedCard = { card, at: e.timeStamp };
+    hideHover();
+    previewPath(card.from);
+  }
   else if (card) {
-    clickedCard = { to: card.to, at: e.timeStamp };
+    clickedCard = { card, at: e.timeStamp };
     hideHover();
     focusRoom(card.to); previewPath(card.to);
   }
@@ -1076,12 +1099,12 @@ function acceptLinkOffer(oneWay) {
 $linkBar.querySelector(".link-both").addEventListener("click", () => acceptLinkOffer(false));
 $linkBar.querySelector(".link-one").addEventListener("click", () => acceptLinkOffer(true));
 $linkBar.querySelector(".link-dismiss").addEventListener("click", hideLinkOffer);
-let clickedCard = null;   // { to, at } of the stub card a plain click last went through
+let clickedCard = null;   // { card, at }: the stub card a plain click last went through
 $canvas.addEventListener("dblclick", (e) => {
   if (clickedCard && e.timeStamp - clickedCard.at < 1000) {
-    const to = clickedCard.to;
+    const { card } = clickedCard;
     clickedCard = null;
-    startWalk(to);
+    if (card.unmapped) goOut(card); else startWalk(card.to);
     return;
   }
   const id = roomAt(e.clientX, e.clientY);

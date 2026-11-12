@@ -438,9 +438,34 @@ describe("exit stubs", () => {
     setCurrent(m, a.id);
     const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
     expect(L.stubs).toEqual([{
-      px: 0, py: 0, dir: "e", unexplored: false,
+      px: 0, py: 0, dir: "e", from: a.id, unexplored: false,
       to: far.id, kind: "area", label: "F",
     }]);
+  });
+
+  it("names the area an exit not taken yet leads to, where the server said", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "A", name: "Port Road", coords: { x: 0, y: 0, z: 0 }, areaId: "1" });
+    a.exitKeys = { e: "land.join", n: "B" };
+    a.exitAreas = { e: { tag: "surface.tamsin", name: "Tamsin" } };
+    setCurrent(m, a.id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    expect(L.stubs).toEqual(expect.arrayContaining([
+      { px: 0, py: 0, dir: "e", from: a.id, unexplored: false, to: null, kind: "area", unmapped: true, label: "Tamsin" },
+      { px: 0, py: 0, dir: "n", unexplored: true },
+    ]));
+  });
+
+  it("names a known area by your label for it, though the exit's room isn't mapped", () => {
+    const m = createMap();
+    const land = addArea(m, { key: "zone:surface.tamsin", label: "Tamsin's land" });
+    const a = addRoom(m, { key: "A", name: "Port Road", coords: { x: 0, y: 0, z: 0 }, areaId: "9" });
+    addRoom(m, { key: "X", name: "Elsewhere", coords: { x: 0, y: 0, z: 0 }, areaId: land.id });
+    a.exitKeys = { e: "land.join" };
+    a.exitAreas = { e: { tag: "surface.tamsin", name: "Tamsin" } };
+    setCurrent(m, a.id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    expect(L.stubs[0]).toMatchObject({ unmapped: true, label: "Tamsin's land" });
   });
 
   it("names the area a stub leads to, by the area's label", () => {

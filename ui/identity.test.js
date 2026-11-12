@@ -175,6 +175,19 @@ describe("resolveRoomSeen — mudstd.room explicit exits", () => {
   });
 });
 
+describe("resolveRoomSeen — where an exit leads out of the area", () => {
+  it("keeps each exit's area, and drops them when a report has none", () => {
+    const m = createMap();
+    const { room: a } = resolveRoomSeen(m, {
+      key: "A", name: "Port Road",
+      exits: [{ dir: "e", toKey: "J", area: "surface.tamsin", areaName: "Tamsin" }, { dir: "w", toKey: "B" }],
+    }, null);
+    expect(a.exitAreas).toEqual({ e: { tag: "surface.tamsin", name: "Tamsin" } });
+    resolveRoomSeen(m, { key: "A", name: "Port Road", exits: [{ dir: "w", toKey: "B" }] }, null);
+    expect(a.exitAreas).toBeUndefined();
+  });
+});
+
 describe("resolveRoomSeen — in/out", () => {
   it("links in/out both ways without placing by them", () => {
     const m = createMap();

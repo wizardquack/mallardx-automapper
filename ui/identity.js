@@ -169,13 +169,23 @@ function inferDirection(map, prev, key) {
 // of it can be matched to the exit taken even when its target wasn't yet on
 // the map. Replaced wholesale on each report; frames without an exits list
 // (room.info) leave it alone.
+// The exits that say they lead out of the room's area (mudstd extension
+// `area`, `areaName` on an exit) are remembered too, so a card can name where
+// they go before anyone's taken them (render.js).
 export function recordExitKeys(room, exits) {
   if (!Array.isArray(exits)) return;
   const byDir = {};
+  const areas = {};
   for (const ex of exits) {
-    if (ex && isDirection(ex.dir) && ex.toKey != null) byDir[ex.dir] = String(ex.toKey);
+    if (!ex || !isDirection(ex.dir) || ex.toKey == null) continue;
+    byDir[ex.dir] = String(ex.toKey);
+    if (ex.area != null && ex.area !== "") {
+      areas[ex.dir] = { tag: String(ex.area), name: ex.areaName ? String(ex.areaName) : String(ex.area) };
+    }
   }
   room.exitKeys = byDir;
+  if (Object.keys(areas).length) room.exitAreas = areas;
+  else delete room.exitAreas;
 }
 
 // Rooms that already reported an exit to `room` by key (before it was on the

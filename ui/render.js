@@ -4,6 +4,7 @@
 
 import { isCompass, vector, reverse } from "./directions.js";
 import { floorMarks } from "./floors.js";
+import { getAreaByKey } from "./graph.js";
 import { fillColor, roomGlyph, regionColor, regionName, inkOn, envColor } from "./annotate.js";
 
 export { envColor };
@@ -114,9 +115,16 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       const ex = r.exits[dir];
       if (ex && ex.to != null && placed[ex.to]) continue;   // a line, shown from the other end
       const target = ex && ex.to != null ? map.rooms[ex.to] : null;
-      if (!target) { stubs.push({ px: p.px, py: p.py, dir, unexplored: true }); continue; }
+      if (!target) {
+        // Not taken yet, but the server says which area it leads to: a card
+        // naming it, as for a room on the map in another area.
+        const out = r.exitAreas && r.exitAreas[dir];
+        if (out) { stubs.push({ px: p.px, py: p.py, dir, from: r.id, unexplored: false, ...unmapped(map, out) }); continue; }
+        stubs.push({ px: p.px, py: p.py, dir, unexplored: true });
+        continue;
+      }
       stubs.push({
-        px: p.px, py: p.py, dir, unexplored: false,
+        px: p.px, py: p.py, dir, from: r.id, unexplored: false,
         ...elsewhere(map, r, target),
       });
     }
@@ -135,6 +143,14 @@ function elsewhere(map, from, to) {
   }
   const up = to.coords.z > from.coords.z;
   return { to: to.id, kind: "floor", up, label: `${up ? "↑" : "↓"} ${to.name || `#${to.id}`}` };
+}
+
+// Where an exit not taken yet leads, by the area the server said: that area
+// as the map knows it, by your label for it, where you've been there before,
+// else by the server's name. `to` is null: there's no room to go to.
+function unmapped(map, out) {
+  const known = map.areaKeyIndex ? getAreaByKey(map, "zone:" + out.tag) : null;
+  return { to: null, kind: "area", unmapped: true, label: (known && known.label) || out.name };
 }
 
 // The direction `room` leads back to `toId` by: the reverse of `dir` where
@@ -693,7 +709,7 @@ function drawCard(ctx, s, p, card, scale, c) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(text, (box.l + box.r) / 2, (box.t + box.b) / 2 + 0.5);
-  return { ...box, to: s.to, dir: s.dir, kind: s.kind, up: s.up, label: s.label };
+  return { ...box, to: s.to, from: s.from, dir: s.dir, kind: s.kind, up: s.up, label: s.label, unmapped: !!s.unmapped };
 }
 
 // A rounded rectangle path; square corners where the context has no roundRect.

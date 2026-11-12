@@ -35,6 +35,14 @@ richer frame.
   shown at a time.
 - **`areaName`** (extension) — the area's name, shown in the area picker. If
   it changes, the label follows; `area` stays the key.
+- **An exit's `area` and `areaName`** (extension) — on an exit that leads out
+  of the room's area, that area's key and name:
+  `"E": { "id": "join.downs", "area": "land", "areaName": "Tamsin" }`. The
+  exit's stub ends in a card naming the area before anyone's taken it (your
+  label for the area, if it's on the map). With no room behind it, a click
+  shows the way to the exit's room, and a double-click walks there, or from
+  that room takes the exit. Send only the area, never the room's name, if the
+  game names places only once they've been seen.
 
 - **`terrain`** — the room's terrain id; its label and colour come from
   `mudstd.room.terrain` (`[{id, label, color}]`), which the mapper keeps with

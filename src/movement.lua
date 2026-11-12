@@ -39,7 +39,16 @@ function M.exits(exits)
     local canon = M.normalize(dir)
     local to_key = type(ex) == "table" and ex.id or nil
     if canon and to_key ~= nil then
-      out[#out + 1] = { dir = canon, toKey = tostring(to_key) }
+      local e = { dir = canon, toKey = tostring(to_key) }
+      -- Where the exit leads out of the room's area (mudstd extension): that
+      -- area's key and name, so a card can say where it goes before it's taken.
+      if ex.area ~= nil and (type(ex.area) == "string" or type(ex.area) == "number") then
+        e.area = tostring(ex.area)
+        if type(ex.areaName) == "string" or type(ex.areaName) == "number" then
+          e.areaName = tostring(ex.areaName)
+        end
+      end
+      out[#out + 1] = e
     end
   end
   table.sort(out, function(a, b) return a.dir < b.dir end)

@@ -46,5 +46,14 @@ check("exits fifth dir", ex[5].dir, "u")
 check("exits drops missing id", #movement.exits({ W = { inverse = "E" } }), 0)
 check("exits non-table", #movement.exits(nil), 0)
 
+-- An exit's area (mudstd extension), where it leads out of the room's.
+local out = movement.exits({
+  E = { id = "land.join", area = "surface.tamsin", areaName = "Tamsin" },
+  W = { id = "town.square" },
+})
+check("exit area", out[1].area, "surface.tamsin")
+check("exit areaName", out[1].areaName, "Tamsin")
+check("no area on an exit within it", out[2].area, nil)
+
 if failures > 0 then os.exit(1) end
 io.write("\nall movement tests passed\n")

@@ -25,6 +25,8 @@ export function createMap() {
 // older saves (so readers treat a missing one as empty):
 //   exitKeys     — { [dir]: targetKey }, the exits the room last reported by key.
 //   exitDirs     — [dir], the exits a captured (non-GMCP) room last listed.
+//   exitAreas    — { [dir]: { tag, name } }, the exits it last reported as
+//                  leading out of its area, with that area's key and name.
 //   serverCoords — true once the server has placed the room by coordinates;
 //                  such a room isn't displaced by another the server places.
 //   wrapX        — where the server says the room's x comes round (a ring's
