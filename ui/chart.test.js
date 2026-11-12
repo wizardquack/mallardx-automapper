@@ -55,6 +55,48 @@ describe("importChart", () => {
     expect(getRoomByKey(m, "c").coords).toEqual({ x: 7, y: 0, z: 0 });
   });
 
+  it("lays out an area the server gave no coords by its exits, not in a row", () => {
+    const m = createMap();
+    importChart(m, [
+      zone("hub", { exits: [{ dir: "n", toKey: "north" }, { dir: "e", toKey: "east" }, { dir: "u", toKey: "up" }] }),
+      zone("north", { exits: [{ dir: "s", toKey: "hub" }] }),
+      zone("east", { exits: [{ dir: "w", toKey: "hub" }, { dir: "e", toKey: "far" }] }),
+      zone("far", { exits: [{ dir: "w", toKey: "east" }] }),
+      zone("up", { exits: [{ dir: "d", toKey: "hub" }] }),
+    ]);
+    const at = (k) => getRoomByKey(m, k).coords;
+    const hub = at("hub");
+    expect(at("north")).toEqual({ ...hub, y: hub.y - 1 });
+    expect(at("east")).toEqual({ ...hub, x: hub.x + 1 });
+    expect(at("far")).toEqual({ ...hub, x: hub.x + 2 });
+    expect(at("up")).toEqual({ ...hub, z: hub.z + 1 });
+  });
+
+  it("starts a piece joined by no compass exit clear of the rest, and spreads it", () => {
+    const m = createMap();
+    importChart(m, [
+      zone("a", { exits: [{ dir: "e", toKey: "b" }] }),
+      zone("b", { exits: [{ dir: "w", toKey: "a" }] }),
+      zone("c", { exits: [{ dir: "w", toKey: "d" }, { dir: "in", toKey: "a" }] }),
+      zone("d", { exits: [{ dir: "e", toKey: "c" }] }),
+    ]);
+    const at = (k) => getRoomByKey(m, k).coords;
+    const cells = ["a", "b", "c", "d"].map((k) => JSON.stringify(at(k)));
+    expect(new Set(cells).size).toBe(4);
+    expect(at("d")).toEqual({ ...at("c"), x: at("c").x - 1 });
+    expect(at("d").x).toBeGreaterThan(at("b").x);
+  });
+
+  it("stretches along an exit's line when the next cell is taken", () => {
+    const m = createMap();
+    importChart(m, [
+      zone("a", { coords: { x: 0, y: 0, z: 0 }, exits: [{ dir: "e", toKey: "c" }] }),
+      zone("b", { coords: { x: 1, y: 0, z: 0 } }),
+      zone("c", { exits: [{ dir: "w", toKey: "a" }] }),
+    ]);
+    expect(getRoomByKey(m, "c").coords).toEqual({ x: 2, y: 0, z: 0 });
+  });
+
   it("puts an unreachable room without coords in a free cell", () => {
     const m = createMap();
     importChart(m, [zone("a", { coords: { x: 0, y: 0, z: 0 } }), zone("lone")]);

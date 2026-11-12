@@ -16,6 +16,9 @@ import {
 // occupies one nor is displaced. Every room leaves it before the import ends.
 const UNPLACED = () => ({ x: NaN, y: NaN, z: NaN });
 
+// How far along an exit's line a room may sit when the cell next door is taken.
+const MAX_STRETCH = 3;
+
 // Import a chart's rooms (`seen` signals, from seenFromFrame) into the map.
 // Returns { created, updated } room counts.
 export function importChart(map, rooms, cfg) {
@@ -69,23 +72,42 @@ export function importChart(map, rooms, cfg) {
   return { created, updated };
 }
 
-// Place each room one compass step from a placed neighbour in its area, in
-// that direction, where the cell is free; repeat while that places anything,
-// so rooms spread out from the placed ones. The rest go to the area's first
-// free cell.
+// Place each room a compass step from a placed neighbour in its area, in that
+// direction; repeat while that places anything, so rooms spread out from the
+// placed ones. When nothing more can spread (an area the server gave no
+// coords, or a piece not joined to the placed rooms by compass exits), seed
+// the next room in chart order clear of everything placed, and spread again.
 function placeByExits(map, rooms) {
   let left = rooms.slice();
-  let progress = true;
-  while (left.length && progress) {
-    progress = false;
-    const next = [];
-    for (const room of left) {
-      const c = cellFromNeighbour(map, room);
-      if (c) { room.coords = c; progress = true; } else next.push(room);
+  while (left.length) {
+    let progress = true;
+    while (left.length && progress) {
+      progress = false;
+      const next = [];
+      for (const room of left) {
+        const c = cellFromNeighbour(map, room);
+        if (c) { room.coords = c; progress = true; } else next.push(room);
+      }
+      left = next;
     }
-    left = next;
+    if (!left.length) break;
+    const seed = left.shift();
+    seed.coords = clearCell(map, seed.areaId);
   }
-  for (const room of left) room.coords = firstFreeCell(map, room.areaId);
+}
+
+// Where a new piece of an area starts: the area's first free cell when it has
+// nothing placed yet, else two cells east of everything it has, so the piece
+// can spread without running into what's there.
+function clearCell(map, areaId) {
+  let maxX = -Infinity, z = 0;
+  for (const id of Object.keys(map.rooms)) {
+    const r = map.rooms[id];
+    if (r.areaId !== areaId || !placed(r)) continue;
+    if (r.coords.x > maxX) { maxX = r.coords.x; z = r.coords.z; }
+  }
+  if (maxX === -Infinity) return firstFreeCell(map, areaId);
+  return { x: maxX + 2, y: 0, z };
 }
 
 function placed(r) {
@@ -107,10 +129,15 @@ function cellFromNeighbour(map, room) {
       if (p.exits[dir].to === room.id && isCompass(dir)) tries.push({ p, dir, sign: 1 });
     }
   }
-  for (const { p, dir, sign } of tries) {
-    const v = vector(dir);
-    const c = { x: p.coords.x + sign * v.dx, y: p.coords.y + sign * v.dy, z: p.coords.z + sign * v.dz };
-    if (!occupied(map, room.areaId, c)) return c;
+  // One step first from every neighbour, then further along the same line,
+  // as a mapper stretches a corridor round a room already in the way.
+  for (let steps = 1; steps <= MAX_STRETCH; steps++) {
+    for (const { p, dir, sign } of tries) {
+      const v = vector(dir);
+      const k = sign * steps;
+      const c = { x: p.coords.x + k * v.dx, y: p.coords.y + k * v.dy, z: p.coords.z + k * v.dz };
+      if (!occupied(map, room.areaId, c)) return c;
+    }
   }
   return null;
 }
