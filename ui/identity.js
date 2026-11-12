@@ -13,7 +13,11 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
   // Non-GMCP worlds have no stable room id; they arrive with a fingerprint
   // (fingerprint.js) instead of a key. Fingerprints are non-unique, so that
   // path resolves by position + movement vector rather than a key lookup.
-  if (seen && seen.fp) return resolveFingerprint(map, seen, pendingDir, cfg);
+  if (seen && seen.fp) {
+    const res = resolveFingerprint(map, seen, pendingDir, cfg);
+    recordExitDirs(res.room, seen.exitDirs);
+    return res;
+  }
 
   const prev = currentRoom(map);
   const existing = getRoomByKey(map, seen.key);
@@ -171,6 +175,13 @@ export function recordExitKeys(room, exits) {
     if (ex && isDirection(ex.dir) && ex.toKey != null) byDir[ex.dir] = String(ex.toKey);
   }
   room.exitKeys = byDir;
+}
+
+// A captured (non-GMCP) room's exits line, as directions: the exits it has,
+// walked or not, so the map can show the ones not taken yet.
+function recordExitDirs(room, dirs) {
+  if (!room || !Array.isArray(dirs)) return;
+  room.exitDirs = dirs.filter((d) => isDirection(d));
 }
 
 // mudstd.room.info reports each room's exits with the neighbour's target key.

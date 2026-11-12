@@ -2,7 +2,7 @@
 // current room; only the current z-level is drawn, and a room that leads up
 // or down is marked (floors.js).
 
-import { isCompass } from "./directions.js";
+import { isCompass, vector, reverse } from "./directions.js";
 import { floorMarks } from "./floors.js";
 import { fillColor, roomGlyph, regionColor, regionName, inkOn, envColor } from "./annotate.js";
 
@@ -31,7 +31,7 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       .sort((a, b) => Number(a) - Number(b));
     anchor = ids.length ? map.rooms[ids[0]] : null;
   }
-  if (!anchor) return { rooms: [], exits: [], tints: [], regions: [], scale };
+  if (!anchor) return { rooms: [], exits: [], stubs: [], tints: [], regions: [], scale };
   const z = viewedZ != null ? viewedZ : anchor.coords.z;
 
   const pathRooms = path && path.rooms ? path.rooms : null;
@@ -66,8 +66,12 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
 
   const { tints, regions } = regionLayout(map, rooms, viewArea, z, anchor, cx, cy, scale);
 
+  // Each exit line carries the direction it leaves each room by (dir1 from
+  // the x1/y1 end, dir2 from the other; null where that room has no exit
+  // back), so draw() can start it from that side of the room.
   const exits = [];
   const seen = new Set();
+  const drawn = new Set();   // `${id}|${dir}` of exits a line already shows
   for (const id of Object.keys(map.rooms)) {
     const r = map.rooms[id];
     if (!placed[id]) continue;
@@ -80,21 +84,108 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       const key = id < to ? `${id}|${to}` : `${to}|${id}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      const back = backDir(map.rooms[to], id, dir);
+      drawn.add(`${id}|${dir}`);
+      if (back) drawn.add(`${to}|${back}`);
       const a = placed[id], b = placed[to];
       const onPath = pathEdges ? pathEdges.has(key) : false;
       const step = wrapStep(a, b);
       if (step == null) {
-        exits.push({ x1: a.px, y1: a.py, x2: b.px, y2: b.py, onPath });
+        exits.push({ x1: a.px, y1: a.py, x2: b.px, y2: b.py, dir1: dir, dir2: back, onPath });
       } else {
         // Across the far side of a ring from the view's centre: each end runs
         // off the edge toward where the other comes round, not across the map.
-        exits.push({ x1: a.px, y1: a.py, x2: a.px + step * scale, y2: b.py, onPath, seam: true });
-        exits.push({ x1: b.px, y1: b.py, x2: b.px - step * scale, y2: a.py, onPath, seam: true });
+        exits.push({ x1: a.px, y1: a.py, x2: a.px + step * scale, y2: b.py, dir1: dir, dir2: null, onPath, seam: true });
+        exits.push({ x1: b.px, y1: b.py, x2: b.px - step * scale, y2: a.py, dir1: back, dir2: null, onPath, seam: true });
       }
     }
   }
 
-  return { rooms, exits, tints, regions, scale };
+  // A short stub for each way out on this floor that no line shows: one not
+  // taken yet (`unexplored`: the room lists it, the map doesn't know where it
+  // goes), or one to a room not in view (another area or floor).
+  const stubs = [];
+  for (const id of Object.keys(placed)) {
+    const r = map.rooms[id];
+    const p = placed[id];
+    for (const dir of exitDirsOf(r)) {
+      const v = vector(dir);
+      if (!v || (v.dx === 0 && v.dy === 0) || drawn.has(`${id}|${dir}`)) continue;
+      const ex = r.exits[dir];
+      if (ex && ex.to != null && placed[ex.to]) continue;   // a line, shown from the other end
+      stubs.push({ px: p.px, py: p.py, dir, unexplored: !(ex && ex.to != null && map.rooms[ex.to]) });
+    }
+  }
+
+  return { rooms, exits, stubs, tints, regions, scale };
+}
+
+// The direction `room` leads back to `toId` by: the reverse of `dir` where
+// that's what it has, else any compass exit of its that leads there.
+function backDir(room, toId, dir) {
+  const rev = reverse(dir);
+  if (rev && room.exits[rev] && room.exits[rev].to === toId) return rev;
+  for (const d of Object.keys(room.exits)) {
+    if (isCompass(d) && room.exits[d].to === toId) return d;
+  }
+  return null;
+}
+
+// Every direction a room has a way out by: its exits on the map, and the ones
+// it last listed (mudstd `exitKeys`, a captured room's `exitDirs`), walked or not.
+function exitDirsOf(r) {
+  const out = new Set(Object.keys(r.exits));
+  for (const d of Object.keys(r.exitKeys || {})) out.add(d);
+  for (const d of r.exitDirs || []) out.add(d);
+  return [...out];
+}
+
+// Where an exit by `dir` leaves a room drawn at (px, py): the middle of that
+// side, or that corner for a diagonal, and the way it points from there.
+// Null for a direction with no way across the floor (u, d, in, out).
+export function exitPort(px, py, dir, half) {
+  const v = dir ? vector(dir) : null;
+  if (!v || (v.dx === 0 && v.dy === 0)) return null;
+  const len = Math.hypot(v.dx, v.dy);
+  return { x: px + v.dx * half, y: py + v.dy * half, ux: v.dx / len, uy: v.dy / len };
+}
+
+// Where a line with no direction at this end meets the room's square, facing
+// the point it comes from.
+function facingPort(px, py, tx, ty, half) {
+  const dx = tx - px, dy = ty - py;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len, uy = dy / len;
+  const t = half / Math.max(Math.abs(ux), Math.abs(uy), 1e-9);
+  return { x: px + ux * t, y: py + uy * t, ux, uy };
+}
+
+// How an exit line is drawn: from each end's port, a short straight run the
+// way its exit points, then a curve between the two. A line between rooms
+// that sit the way their exits say comes out straight; one that doesn't bends,
+// so the side it leaves a room by still names the command. Returns
+// { start, a, c1, c2, b, end }: lineTo a, bezierCurveTo c1 c2 b, lineTo end.
+export function exitGeometry(e, half) {
+  if (e.seam) {
+    const p = exitPort(e.x1, e.y1, e.dir1, half) || facingPort(e.x1, e.y1, e.x2, e.y2, half);
+    const end = { x: e.x2, y: e.y2 };
+    return { start: p, a: p, c1: p, c2: end, b: end, end };
+  }
+  const p1 = exitPort(e.x1, e.y1, e.dir1, half) || facingPort(e.x1, e.y1, e.x2, e.y2, half);
+  const p2 = exitPort(e.x2, e.y2, e.dir2, half) || facingPort(e.x2, e.y2, e.x1, e.y1, half);
+  const gap = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  const run = Math.min(half * 0.75, gap / 3);
+  const a = { x: p1.x + p1.ux * run, y: p1.y + p1.uy * run };
+  const b = { x: p2.x + p2.ux * run, y: p2.y + p2.uy * run };
+  const k = Math.hypot(b.x - a.x, b.y - a.y) * 0.4;
+  return {
+    start: { x: p1.x, y: p1.y },
+    a,
+    c1: { x: a.x + p1.ux * k, y: a.y + p1.uy * k },
+    c2: { x: b.x + p2.ux * k, y: b.y + p2.uy * k },
+    b,
+    end: { x: p2.x, y: p2.y },
+  };
 }
 
 // The ids of the laid-out rooms whose squares meet the box between two
@@ -210,6 +301,7 @@ export const DEFAULT_COLORS = {
   current: "#facc15",      // the room you're standing in
   label: "#e5e7eb",        // room and region names (→ --fg)
   halo: "#0b0e14",         // outline behind names, for legibility (→ --bg)
+  unexplored: "#fb923c",   // stub of an exit not taken yet
 };
 
 export function draw(ctx, layout, { roomSize, colors, labels = true }) {
@@ -223,10 +315,14 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
     ctx.fillStyle = regionColor(t.region, 0.18);
     ctx.fillRect(t.px - scale / 2, t.py - scale / 2, scale, scale);
   }
+  ctx.lineCap = "round";
   for (const e of layout.exits) {
+    const g = exitGeometry(e, half);
     ctx.beginPath();
-    ctx.moveTo(e.x1, e.y1);
-    ctx.lineTo(e.x2, e.y2);
+    ctx.moveTo(g.start.x, g.start.y);
+    ctx.lineTo(g.a.x, g.a.y);
+    ctx.bezierCurveTo(g.c1.x, g.c1.y, g.c2.x, g.c2.y, g.b.x, g.b.y);
+    ctx.lineTo(g.end.x, g.end.y);
     ctx.strokeStyle = e.onPath ? c.exitPath : c.exit;
     ctx.lineWidth = e.onPath ? 4 : 2;
     // A way across a ring's seam is dashed: it goes on round, out of view.
@@ -234,6 +330,27 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
     ctx.stroke();
   }
   if (ctx.setLineDash) ctx.setLineDash([]);
+  // Stubs: a way not taken yet ends in a small ring, in its own colour; a way
+  // to a room out of view (another area or floor) is a plain short line.
+  for (const s of layout.stubs || []) {
+    const p = exitPort(s.px, s.py, s.dir, half);
+    if (!p) continue;
+    const len = Math.max(4, half * 0.9);
+    const ex = p.x + p.ux * len, ey = p.y + p.uy * len;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(ex, ey);
+    ctx.strokeStyle = s.unexplored ? c.unexplored : c.exit;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    if (s.unexplored) {
+      const rad = Math.max(2, half * 0.2);
+      ctx.beginPath();
+      ctx.arc(ex + p.ux * rad, ey + p.uy * rad, rad, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  ctx.lineCap = "butt";
   for (const r of layout.rooms) {
     // A charted room you haven't been in is faded, with a dashed border.
     ctx.globalAlpha = r.charted ? CHARTED_ALPHA : 1;

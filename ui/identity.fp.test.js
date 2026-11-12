@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createMap, currentRoom, getRoom } from "./graph.js";
 import { resolveRoomSeen } from "./identity.js";
-import { fingerprint } from "./fingerprint.js";
+import { fingerprint, exitDirections } from "./fingerprint.js";
 
 // Helper: build a fingerprint "room seen" the way mapper.js will.
 function fp(name, exits, env) {
@@ -116,5 +116,14 @@ describe("resolveRoomSeen — fingerprint re-show", () => {
     const again = resolveRoomSeen(m, fp("Square", "n e"), null, {});
     expect(again).toEqual({ room: a, created: false });
     expect(Object.keys(m.rooms)).toHaveLength(1);
+  });
+});
+
+describe("resolveRoomSeen — fingerprint exits listed", () => {
+  it("keeps the room's listed exits, walked or not, for the map's stubs", () => {
+    const m = createMap();
+    const seen = { ...fp("Square", "Obvious exits: north, east and up."), exitDirs: exitDirections("north, east and up") };
+    const { room } = resolveRoomSeen(m, seen, null, {});
+    expect(room.exitDirs.sort()).toEqual(["e", "n", "u"]);
   });
 });

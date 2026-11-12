@@ -61,8 +61,13 @@ export function hashString(s) {
 // parsed array; either is normalized to the canonical sorted list first. The
 // "fp:" prefix keeps fingerprint keys from ever colliding with a GMCP room id
 // in the same map blob.
+// The directions in a captured exits list (a string, or a list of words).
+export function exitDirections(exits) {
+  return Array.isArray(exits) ? parseExitList(exits.join(" ")) : parseExitList(exits);
+}
+
 export function fingerprint({ name, exits, terrain }) {
-  const dirs = Array.isArray(exits) ? parseExitList(exits.join(" ")) : parseExitList(exits);
+  const dirs = exitDirections(exits);
   const t = terrain == null || terrain === "" ? "" : "|" + String(terrain).toLowerCase().trim();
   const basis = normalizeName(name) + "|" + dirs.join(",") + t;
   return "fp:" + hashString(basis);

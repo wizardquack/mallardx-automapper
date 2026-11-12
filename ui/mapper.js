@@ -16,7 +16,7 @@ import { addArea } from "./graph.js";
 import { resolveRoomSeen, contradicts } from "./identity.js";
 import { seenFromFrame, terrainsFromFrame } from "./seen.js";
 import { importChart } from "./chart.js";
-import { fingerprint, suggestNamePattern, suggestExitsPattern } from "./fingerprint.js";
+import { fingerprint, exitDirections, suggestNamePattern, suggestExitsPattern } from "./fingerprint.js";
 import { computeLayout, draw, roomsInRect, DEFAULT_COLORS } from "./render.js";
 import { findPath } from "./pathfind.js";
 import { matchRooms, resolveDestination } from "./search.js";
@@ -735,7 +735,11 @@ panel.on("room_seen", (frame) => {
 // Fingerprint them into a synthetic identity and ingest exactly like GMCP.
 panel.on("capture", (frame) => {
   if (!frame || !frame.name) return;
-  ingestRoom({ fp: fingerprint({ name: frame.name, exits: frame.exits }), name: frame.name, env: "" });
+  ingestRoom({
+    fp: fingerprint({ name: frame.name, exits: frame.exits }),
+    exitDirs: exitDirections(frame.exits),
+    name: frame.name, env: "",
+  });
 });
 
 // Movement-failure guard: a blocked move produced no room change, so drop the

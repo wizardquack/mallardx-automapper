@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createMap, addRoom, linkExit, setCurrent, addArea } from "./graph.js";
-import { computeLayout, envColor, draw, fitText, glyphOrigin, roomsInRect, NAME_LABEL_MIN_SCALE } from "./render.js";
+import { computeLayout, envColor, draw, fitText, glyphOrigin, roomsInRect, exitPort, exitGeometry, NAME_LABEL_MIN_SCALE } from "./render.js";
 import { setTerrains } from "./graph.js";
 
 function sampleMap() {
@@ -33,7 +33,7 @@ describe("computeLayout", () => {
   it("emits an exit segment between linked same-level rooms", () => {
     const { m } = sampleMap();
     const layout = computeLayout(m, { cx: 100, cy: 100, scale: 40 });
-    expect(layout.exits).toContainEqual({ x1: 100, y1: 100, x2: 100, y2: 60, onPath: false });
+    expect(layout.exits).toContainEqual({ x1: 100, y1: 100, x2: 100, y2: 60, dir1: "n", dir2: null, onPath: false });
   });
 
   it("draws no segment for an in/out exit (routable, not drawn)", () => {
@@ -50,7 +50,7 @@ describe("computeLayout", () => {
 
   it("returns empty layout with no current room", () => {
     const m = createMap();
-    expect(computeLayout(m, { cx: 0, cy: 0, scale: 40 })).toEqual({ rooms: [], exits: [], tints: [], regions: [], scale: 40 });
+    expect(computeLayout(m, { cx: 0, cy: 0, scale: 40 })).toEqual({ rooms: [], exits: [], stubs: [], tints: [], regions: [], scale: 40 });
   });
 
   it("envColor is deterministic and non-empty", () => {
@@ -136,7 +136,7 @@ describe("computeLayout: a ring's seam", () => {
     expect(px(rooms[0])).toBe(60);
     expect(px(rooms[1])).toBe(-120);
     expect(px(rooms[2])).toBe(-60);
-    expect(layout.exits).toContainEqual({ x1: 0, y1: 0, x2: 60, y2: 0, onPath: false });
+    expect(layout.exits).toContainEqual(expect.objectContaining({ x1: 0, y1: 0, x2: 60, y2: 0, onPath: false }));
   });
 
   it("runs a way across the far side off each edge, dashed, not across the map", () => {
@@ -146,8 +146,8 @@ describe("computeLayout: a ring's seam", () => {
     // 6 is drawn at +60, 18 at -60, and 12 at -120: the way 6 → 12 crosses the far side.
     const seam = layout.exits.filter((e) => e.seam);
     expect(seam).toHaveLength(2);
-    expect(seam).toContainEqual({ x1: 60, y1: 0, x2: 120, y2: 0, onPath: false, seam: true });
-    expect(seam).toContainEqual({ x1: -120, y1: 0, x2: -180, y2: 0, onPath: false, seam: true });
+    expect(seam).toContainEqual(expect.objectContaining({ x1: 60, y1: 0, x2: 120, y2: 0, dir1: "e", onPath: false, seam: true }));
+    expect(seam).toContainEqual(expect.objectContaining({ x1: -120, y1: 0, x2: -180, y2: 0, onPath: false, seam: true }));
   });
 
   it("leaves rooms without a wrap where they are", () => {
@@ -200,6 +200,7 @@ function recordingCtx() {
     globalAlpha: 1,
     fillRect: (...a) => calls.push(["fillRect", ctx.fillStyle, ...a, ctx.globalAlpha]),
     strokeRect: () => {}, beginPath: () => {}, moveTo: () => {}, lineTo: () => {}, stroke: () => {},
+    bezierCurveTo: () => {},
     strokeText: () => {}, closePath: () => {}, arc: () => {},
     fill: () => calls.push(["fill", ctx.fillStyle]),
     fillText: (t, x, y) => calls.push(["fillText", t, x, y]),
@@ -355,5 +356,89 @@ describe("charted rooms", () => {
     expect(alphas).toContain(0.45);
     expect(alphas).toContain(1);
     expect(ctx.globalAlpha).toBe(1);
+  });
+});
+
+describe("exit directions", () => {
+  function pair(dirAB, dirBA, bAt) {
+    const m = createMap();
+    const a = addRoom(m, { key: "A", name: "A", coords: { x: 0, y: 0, z: 0 } });
+    const b = addRoom(m, { key: "B", name: "B", coords: { ...bAt, z: 0 } });
+    linkExit(m, a.id, dirAB, b.id);
+    if (dirBA) linkExit(m, b.id, dirBA, a.id);
+    setCurrent(m, a.id);
+    return { m, a, b };
+  }
+
+  it("records the direction each end of a line leaves its room by", () => {
+    // B is up-and-right of A, but the way there is `n`, and back is `w`.
+    const { m } = pair("n", "w", { x: 1, y: -2 });
+    const [e] = computeLayout(m, { cx: 0, cy: 0, scale: 10 }).exits;
+    expect(e).toMatchObject({ dir1: "n", dir2: "w" });
+  });
+
+  it("prefers the reverse exit as the way back", () => {
+    const { m, a, b } = pair("e", "w", { x: 1, y: 0 });
+    linkExit(m, b.id, "sw", a.id);
+    const [e] = computeLayout(m, { cx: 0, cy: 0, scale: 10 }).exits;
+    expect(e).toMatchObject({ dir1: "e", dir2: "w" });
+  });
+
+  it("puts a port mid-side for a straight direction and on the corner for a diagonal", () => {
+    expect(exitPort(0, 0, "n", 5)).toMatchObject({ x: 0, y: -5, ux: 0, uy: -1 });
+    expect(exitPort(0, 0, "ne", 5)).toMatchObject({ x: 5, y: -5 });
+    expect(exitPort(0, 0, "u", 5)).toBeNull();
+  });
+
+  it("leaves a room by its exit's side even when the other room sits more the other way", () => {
+    // A `n` exit to a room mostly east: the line starts at the top of A.
+    const g = exitGeometry({ x1: 0, y1: 0, x2: 40, y2: -10, dir1: "n", dir2: "w" }, 5);
+    expect(g.start).toEqual({ x: 0, y: -5 });
+    expect(g.a.x).toBe(0);
+    expect(g.a.y).toBeLessThan(-5);
+    expect(g.end).toEqual({ x: 35, y: -10 });
+  });
+
+  it("meets a room with no exit back on the side facing the line", () => {
+    const g = exitGeometry({ x1: 0, y1: 0, x2: 40, y2: 0, dir1: "e", dir2: null }, 5);
+    expect(g.end).toEqual({ x: 35, y: 0 });
+  });
+
+  it("is straight between rooms that sit the way their exits say", () => {
+    const g = exitGeometry({ x1: 0, y1: 0, x2: 0, y2: -40, dir1: "n", dir2: "s" }, 5);
+    for (const p of [g.start, g.a, g.c1, g.c2, g.b, g.end]) expect(p.x).toBe(0);
+  });
+});
+
+describe("exit stubs", () => {
+  it("stubs a listed exit not taken yet, but not one a line already shows", () => {
+    const { m, a } = sampleMap();          // a -n-> b
+    a.exitKeys = { n: "B", e: "C", u: "U" };
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    expect(L.stubs).toEqual([{ px: 0, py: 0, dir: "e", unexplored: true }]);
+  });
+
+  it("stubs a captured (non-GMCP) room's listed exits too", () => {
+    const { m, a } = sampleMap();
+    a.exitDirs = ["n", "sw"];
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    expect(L.stubs).toEqual([{ px: 0, py: 0, dir: "sw", unexplored: true }]);
+  });
+
+  it("stubs a known exit to a room out of view as explored", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "A", name: "A", coords: { x: 0, y: 0, z: 0 }, areaId: "1" });
+    const far = addRoom(m, { key: "F", name: "F", coords: { x: 1, y: 0, z: 0 }, areaId: "2" });
+    linkExit(m, a.id, "e", far.id);
+    setCurrent(m, a.id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    expect(L.stubs).toEqual([{ px: 0, py: 0, dir: "e", unexplored: false }]);
+  });
+
+  it("doesn't stub the far end of a one-way line", () => {
+    const { m, b } = sampleMap();          // a -n-> b, nothing back
+    b.exitKeys = { s: "A" };               // b lists `s`, unlinked — still unexplored
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    expect(L.stubs).toEqual([{ px: 0, py: -40, dir: "s", unexplored: true }]);
   });
 });

@@ -24,6 +24,7 @@ export function createMap() {
 // Rooms may also carry fields set by identity.js and absent on rooms from
 // older saves (so readers treat a missing one as empty):
 //   exitKeys     — { [dir]: targetKey }, the exits the room last reported by key.
+//   exitDirs     — [dir], the exits a captured (non-GMCP) room last listed.
 //   serverCoords — true once the server has placed the room by coordinates;
 //                  such a room isn't displaced by another the server places.
 //   wrapX        — where the server says the room's x comes round (a ring's
