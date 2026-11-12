@@ -17,7 +17,7 @@ import { resolveRoomSeen, contradicts } from "./identity.js";
 import { seenFromFrame, terrainsFromFrame } from "./seen.js";
 import { importChart } from "./chart.js";
 import { fingerprint, exitDirections, suggestNamePattern, suggestExitsPattern } from "./fingerprint.js";
-import { computeLayout, draw, roomsInRect, DEFAULT_COLORS } from "./render.js";
+import { computeLayout, draw, roomsInRect, cardAt, DEFAULT_COLORS } from "./render.js";
 import { findPath } from "./pathfind.js";
 import { matchRooms, resolveDestination } from "./search.js";
 import { createWalk } from "./walk.js";
@@ -49,6 +49,7 @@ let zoomIdx = 2;
 let panX = 0, panY = 0;
 let lastLayout = { rooms: [] };
 let lastRoomSize = 0;
+let lastCards = [];         // stub cards last drawn (render.js): where an exit leads off the view
 let pocketPreview = null;   // { ids:Set<string>, areaId:string } while previewing
 let pendingTerrains = null; // mudstd.room.terrain received before the map loaded
 let pendingCharts = [];     // mudstd.map.rooms received before the map loaded
@@ -164,7 +165,7 @@ function redraw() {
   });
   lastLayout = layout;
   lastRoomSize = Math.max(8, ZOOMS[zoomIdx] * 0.5);
-  draw(ctx, layout, { roomSize: lastRoomSize, colors: themeColors(), labels: showLabels });
+  lastCards = draw(ctx, layout, { roomSize: lastRoomSize, colors: themeColors(), labels: showLabels }).cards;
   for (const id of selection) if (!map.rooms[id]) selection.delete(id);
   drawSelection();
   const cur = currentRoom(map);
@@ -822,7 +823,7 @@ $search.addEventListener("keydown", (e) => {
   }
 });
 
-// Canvas: pan (drag), single-click = select + center + preview, double-click = walk.
+// Canvas: pan (drag), single-click = preview the route (a stub card: view where it leads), double-click = walk.
 let dragging = false, lastX = 0, lastY = 0, downX = 0, downY = 0, movedDuringDrag = false;
 let dragRoomId = null;   // non-null while dragging a room (vs panning)
 function roomAt(clientX, clientY) {
@@ -833,6 +834,24 @@ function roomAt(clientX, clientY) {
     if (x >= r.px - half && x <= r.px + half && y >= r.py - half && y <= r.py + half) return r.id;
   }
   return null;
+}
+// The stub card under a pointer, where no room is: a card sits beneath any
+// room it meets, so the room wins.
+function cardAtClient(clientX, clientY) {
+  if (roomAt(clientX, clientY) != null) return null;
+  const rect = $canvas.getBoundingClientRect();
+  return cardAt(lastCards, clientX - rect.left, clientY - rect.top);
+}
+const DIR_NAMES = { n: "north", s: "south", e: "east", w: "west", ne: "northeast", nw: "northwest", se: "southeast", sw: "southwest" };
+// Hover card for a stub card: where it leads, and what a click does.
+function cardTooltip(k) {
+  const to = getRoom(map, k.to);
+  const area = to && getArea(map, to.areaId);
+  const rows = [{ label: "Exit", value: DIR_NAMES[k.dir] || k.dir }];
+  if (to) rows.push({ label: "To", value: to.name || `#${to.id}` });
+  if (k.kind === "floor") rows.push({ label: "Floor", value: k.up ? "Above" : "Below" });
+  const title = k.kind === "area" ? ((area && area.label) || k.label) : k.label;
+  return { title, rows, body: "Click to view · double-click to walk there" };
 }
 // Convert a client pixel to an integer area-grid cell, using the anchor and
 // scale the last layout was drawn with. Mirrors render.js computeLayout math.
@@ -870,7 +889,11 @@ function hideHover() {
   hoverId = null;
 }
 $canvas.addEventListener("mousemove", (e) => {
-  if (dragging || !panel.tooltip) return;
+  if (dragging) return;
+  const card = cardAtClient(e.clientX, e.clientY);
+  $canvas.style.cursor = card ? "pointer" : "";
+  if (!panel.tooltip) return;
+  if (card) { hoverCard(card); return; }
   const id = roomAt(e.clientX, e.clientY);
   if (id === hoverId) return;
   hideHover();
@@ -889,6 +912,19 @@ $canvas.addEventListener("mousemove", (e) => {
     );
   }, 350);
 });
+// The same, over a stub card; its hover key is "card:" + where and which way.
+function hoverCard(k) {
+  const key = `card:${k.to}|${k.dir}`;
+  if (key === hoverId) return;
+  hideHover();
+  hoverId = key;
+  hoverTimer = setTimeout(() => {
+    hoverTimer = null;
+    if (!getRoom(map, k.to)) return;
+    const rect = $canvas.getBoundingClientRect();
+    panel.tooltip.show({ x: rect.left + k.l, y: rect.top + k.t, width: k.r - k.l, height: k.b - k.t }, cardTooltip(k));
+  }, 350);
+}
 $canvas.addEventListener("mouseleave", hideHover);
 $canvas.addEventListener("wheel", hideHover, { passive: true });
 
@@ -951,6 +987,10 @@ window.addEventListener("mouseup", (e) => {
   dragging = false; dragRoomId = null;
 });
 $canvas.addEventListener("click", (e) => {
+  // The second click of a double-click on a card: the first switched the
+  // view, so leave it to dblclick, which walks to the room the card named.
+  if (e.detail >= 2 && clickedCard) return;
+  clickedCard = null;
   if (movedDuringDrag) return;               // it was a pan/drag, not a click
   const id = roomAt(e.clientX, e.clientY);
   if (pocketPreview) {
@@ -963,6 +1003,11 @@ $canvas.addEventListener("click", (e) => {
   }
   if (pendingMode) {
     if (id != null) resolvePendingMode(id);
+    else {
+      // A card takes you to the other area or floor, to pick the room there.
+      const card = cardAtClient(e.clientX, e.clientY);
+      if (card) { hideHover(); focusRoom(card.to); }
+    }
     return;                                   // consume the click either way
   }
   if (e.shiftKey) {
@@ -973,7 +1018,16 @@ $canvas.addEventListener("click", (e) => {
     return;
   }
   const cleared = clearSelection();
-  if (id != null) { focusRoom(id); previewPath(id); }
+  const card = id == null ? cardAtClient(e.clientX, e.clientY) : null;
+  // A room: show the route there, leaving the map where it is. A card: go
+  // and look at where it leads (the other area or floor), remembering the
+  // room so a double-click walks there though the view has changed under it.
+  if (id != null) { previewPath(id); if (cleared && !currentRoom(map)) redraw(); }
+  else if (card) {
+    clickedCard = { to: card.to, at: e.timeStamp };
+    hideHover();
+    focusRoom(card.to); previewPath(card.to);
+  }
   else if (cleared) redraw();
 });
 function resolvePendingMode(targetId) {
@@ -1022,7 +1076,14 @@ function acceptLinkOffer(oneWay) {
 $linkBar.querySelector(".link-both").addEventListener("click", () => acceptLinkOffer(false));
 $linkBar.querySelector(".link-one").addEventListener("click", () => acceptLinkOffer(true));
 $linkBar.querySelector(".link-dismiss").addEventListener("click", hideLinkOffer);
+let clickedCard = null;   // { to, at } of the stub card a plain click last went through
 $canvas.addEventListener("dblclick", (e) => {
+  if (clickedCard && e.timeStamp - clickedCard.at < 1000) {
+    const to = clickedCard.to;
+    clickedCard = null;
+    startWalk(to);
+    return;
+  }
   const id = roomAt(e.clientX, e.clientY);
   if (id != null) startWalk(id);
 });

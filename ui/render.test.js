@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createMap, addRoom, linkExit, setCurrent, addArea } from "./graph.js";
-import { computeLayout, envColor, draw, fitText, glyphOrigin, roomsInRect, exitPort, clearOf, exitGeometry, NAME_LABEL_MIN_SCALE } from "./render.js";
+import { computeLayout, envColor, draw, fitText, glyphOrigin, roomsInRect, exitPort, clearOf, exitGeometry, cardAt, NAME_LABEL_MIN_SCALE } from "./render.js";
 import { setTerrains } from "./graph.js";
 
 function sampleMap() {
@@ -437,7 +437,37 @@ describe("exit stubs", () => {
     linkExit(m, a.id, "e", far.id);
     setCurrent(m, a.id);
     const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
-    expect(L.stubs).toEqual([{ px: 0, py: 0, dir: "e", unexplored: false }]);
+    expect(L.stubs).toEqual([{
+      px: 0, py: 0, dir: "e", unexplored: false,
+      to: far.id, kind: "area", label: "F", cardX: 40, cardY: 0,
+    }]);
+  });
+
+  it("names the area a stub leads to, by the area's label", () => {
+    const m = createMap();
+    const here = addArea(m, { key: "zone:downs", label: "the Downs" });
+    const there = addArea(m, { key: "zone:fields", label: "Fallow Fields" });
+    const a = addRoom(m, { key: "A", name: "Port Road", coords: { x: 0, y: 0, z: 0 }, areaId: here.id });
+    const far = addRoom(m, { key: "F", name: "Gate", coords: { x: 9, y: 9, z: 0 }, areaId: there.id });
+    linkExit(m, a.id, "nw", far.id);
+    setCurrent(m, a.id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    expect(L.stubs).toEqual([expect.objectContaining({
+      dir: "nw", to: far.id, kind: "area", label: "Fallow Fields", cardX: -40, cardY: -40,
+    })]);
+  });
+
+  it("names a room on another floor of the area, with which way it is", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "A", name: "Hall", coords: { x: 0, y: 0, z: 0 } });
+    const up = addRoom(m, { key: "T", name: "Tower Stair", coords: { x: 1, y: 0, z: 1 } });
+    const down = addRoom(m, { key: "C", name: "Cellar", coords: { x: 0, y: 1, z: -1 } });
+    linkExit(m, a.id, "e", up.id);
+    linkExit(m, a.id, "s", down.id);
+    setCurrent(m, a.id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    expect(L.stubs).toContainEqual(expect.objectContaining({ dir: "e", to: up.id, kind: "floor", up: true, label: "↑ Tower Stair" }));
+    expect(L.stubs).toContainEqual(expect.objectContaining({ dir: "s", to: down.id, kind: "floor", up: false, label: "↓ Cellar" }));
   });
 
   it("doesn't stub the far end of a one-way line", () => {
@@ -473,5 +503,66 @@ describe("unexplored stubs", () => {
     expect(clearOf("#f80")).toBe("rgba(255, 136, 0, 0)");
     expect(clearOf("#FB923C")).toBe("rgba(251, 146, 60, 0)");
     expect(clearOf("rgb(1, 2, 3)")).toBe("transparent");
+  });
+});
+
+describe("cards on stubs to another area or floor", () => {
+  function crossing(label = "Fallow Fields") {
+    const m = createMap();
+    const here = addArea(m, { key: "h", label: "the Downs" });
+    const there = addArea(m, { key: "t", label });
+    const a = addRoom(m, { key: "A", name: "Port Road", coords: { x: 0, y: 0, z: 0 }, areaId: here.id });
+    const far = addRoom(m, { key: "F", name: "Gate", coords: { x: 5, y: 0, z: 0 }, areaId: there.id });
+    linkExit(m, a.id, "e", far.id);
+    setCurrent(m, a.id);
+    return { m, far };
+  }
+
+  it("draws a card naming the area on the next cell, and returns where it is", () => {
+    const { m, far } = crossing("Fields");
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 60 });
+    const ctx = recordingCtx();
+    const { cards } = draw(ctx, L, { roomSize: 30 });
+    expect(texts(ctx)).toContain("Fields");
+    expect(cards).toHaveLength(1);
+    const k = cards[0];
+    expect(k).toMatchObject({ to: far.id, dir: "e", kind: "area", label: "Fields" });
+    // Centred on the next cell east: "Fields" is 36 wide here, plus padding.
+    expect([k.l, k.r]).toEqual([60 - 22, 60 + 22]);
+    expect(cardAt(cards, 60, 0)).toBe(k);
+    expect(cardAt(cards, 0, 0)).toBeNull();
+  });
+
+  it("cuts a long name to fit the cell, keeping the full one for hover", () => {
+    const { m } = crossing("The Very Long Name Of Somewhere");
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: NAME_LABEL_MIN_SCALE });
+    const ctx = recordingCtx();
+    const { cards } = draw(ctx, L, { roomSize: NAME_LABEL_MIN_SCALE / 2 });
+    const shown = texts(ctx).find((t) => t.endsWith("…"));
+    expect(shown).toBeDefined();
+    expect(cards[0].r - cards[0].l).toBeLessThanOrEqual(NAME_LABEL_MIN_SCALE - 2);
+    expect(cards[0].label).toBe("The Very Long Name Of Somewhere");
+  });
+
+  it("is a plain short line with names off, or zoomed out too far to read", () => {
+    const { m } = crossing("Fields");
+    for (const [scale, labels] of [[NAME_LABEL_MIN_SCALE, false], [NAME_LABEL_MIN_SCALE - 4, true]]) {
+      const L = computeLayout(m, { cx: 0, cy: 0, scale });
+      const ctx = recordingCtx();
+      const { cards } = draw(ctx, L, { roomSize: scale / 2, labels });
+      expect(cards).toEqual([]);
+      expect(texts(ctx)).not.toContain("Fields");
+    }
+  });
+
+  it("is drawn before the rooms, so a room over it stays on top", () => {
+    const { m } = crossing("Fields");
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 60 });
+    const ctx = recordingCtx();
+    draw(ctx, L, { roomSize: 30 });
+    const card = ctx.calls.findIndex((c) => c[0] === "fillText" && c[1] === "Fields");
+    const room = ctx.calls.findIndex((c) => c[0] === "fillRect");
+    expect(card).toBeGreaterThanOrEqual(0);
+    expect(card).toBeLessThan(room);
   });
 });

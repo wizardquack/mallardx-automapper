@@ -113,11 +113,31 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       if (!v || (v.dx === 0 && v.dy === 0) || drawn.has(`${id}|${dir}`)) continue;
       const ex = r.exits[dir];
       if (ex && ex.to != null && placed[ex.to]) continue;   // a line, shown from the other end
-      stubs.push({ px: p.px, py: p.py, dir, unexplored: !(ex && ex.to != null && map.rooms[ex.to]) });
+      const target = ex && ex.to != null ? map.rooms[ex.to] : null;
+      if (!target) { stubs.push({ px: p.px, py: p.py, dir, unexplored: true }); continue; }
+      stubs.push({
+        px: p.px, py: p.py, dir, unexplored: false,
+        ...elsewhere(map, r, target),
+        // Its card sits on the next cell that way: the room it leads to
+        // isn't drawn in this view, so that cell is free for it.
+        cardX: p.px + v.dx * scale, cardY: p.py + v.dy * scale,
+      });
     }
   }
 
   return { rooms, exits, stubs, tints, regions, scale };
+}
+
+// Where a stub to a room out of view leads, for its card: another area (by
+// the area's name), or another floor of this one (by the room's name, with
+// an arrow for up or down).
+function elsewhere(map, from, to) {
+  if (to.areaId !== from.areaId) {
+    const area = map.areas && map.areas[to.areaId];
+    return { to: to.id, kind: "area", label: (area && area.label) || to.name || `#${to.id}` };
+  }
+  const up = to.coords.z > from.coords.z;
+  return { to: to.id, kind: "floor", up, label: `${up ? "↑" : "↓"} ${to.name || `#${to.id}`}` };
 }
 
 // The direction `room` leads back to `toId` by: the reverse of `dir` where
@@ -352,10 +372,18 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
   if (ctx.setLineDash) ctx.setLineDash([]);
   // Stubs: a way not taken yet fades out in its own colour, a path running
   // on into the unknown; a way to a room out of view (another area or floor)
-  // is a plain short line.
+  // runs to a card naming where it goes, or with names off or too small to
+  // read, is a plain short line. Drawn before rooms and names, so where a
+  // card meets either it's tucked beneath.
+  const cards = [];
+  const cardsShown = labels && scale >= NAME_LABEL_MIN_SCALE;
   for (const s of layout.stubs || []) {
     const p = exitPort(s.px, s.py, s.dir, half);
     if (!p) continue;
+    if (!s.unexplored && cardsShown && s.label && s.cardX != null) {
+      cards.push(drawCard(ctx, s, p, scale, c));
+      continue;
+    }
     // A fading stub runs a room's width, so enough of it shows before it's gone.
     const len = s.unexplored ? Math.max(8, half * 2) : Math.max(4, half * 0.9);
     const ex = p.x + p.ux * len, ey = p.y + p.uy * len;
@@ -389,7 +417,7 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
     if (marked) drawFloorMarks(ctx, r, half);
   }
   ctx.globalAlpha = 1;
-  if (!labels) return;
+  if (!labels) return { cards };
 
   if (scale >= NAME_LABEL_MIN_SCALE) {
     ctx.font = "10px system-ui, sans-serif";
@@ -415,6 +443,51 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
       haloText(ctx, g.name, g.x, y, c);
     }
   }
+  return { cards };
+}
+
+// Card size: its text's font, height, and padding either side.
+const CARD_FONT = "10px system-ui, sans-serif";
+const CARD_H = 15;
+const CARD_PAD = 4;
+
+// A stub's line out to its card, and the card: a rounded box on the next cell
+// naming where the exit goes, cut to fit the cell. Returns its box, where it
+// leads, and the full name, for clicks and the hover card.
+function drawCard(ctx, s, p, scale, c) {
+  ctx.font = CARD_FONT;
+  const text = fitText(ctx, s.label, scale - 2 - CARD_PAD * 2);
+  const w = ctx.measureText(text).width + CARD_PAD * 2;
+  const box = { l: s.cardX - w / 2, r: s.cardX + w / 2, t: s.cardY - CARD_H / 2, b: s.cardY + CARD_H / 2 };
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+  ctx.lineTo(s.cardX, s.cardY);       // the card covers the end of it
+  ctx.strokeStyle = c.exit;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.beginPath();
+  roundRect(ctx, box.l, box.t, w, CARD_H, 4);
+  ctx.fillStyle = c.halo;
+  ctx.fill();
+  ctx.strokeStyle = c.exit;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = c.label;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, s.cardX, s.cardY + 0.5);
+  return { ...box, to: s.to, dir: s.dir, kind: s.kind, label: s.label };
+}
+
+// A rounded rectangle path; square corners where the context has no roundRect.
+function roundRect(ctx, x, y, w, h, r) {
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
+  else if (ctx.rect) ctx.rect(x, y, w, h);
+}
+
+// The card (from draw's `cards`) under a canvas point, or null.
+export function cardAt(cards, x, y) {
+  return (cards || []).find((k) => x >= k.l && x <= k.r && y >= k.t && y <= k.b) || null;
 }
 
 // A way up is a small triangle pointing up in the room's top-right corner, a
