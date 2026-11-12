@@ -439,7 +439,7 @@ describe("exit stubs", () => {
     const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
     expect(L.stubs).toEqual([{
       px: 0, py: 0, dir: "e", unexplored: false,
-      to: far.id, kind: "area", label: "F", cardX: 40, cardY: 0,
+      to: far.id, kind: "area", label: "F",
     }]);
   });
 
@@ -453,7 +453,7 @@ describe("exit stubs", () => {
     setCurrent(m, a.id);
     const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
     expect(L.stubs).toEqual([expect.objectContaining({
-      dir: "nw", to: far.id, kind: "area", label: "Fallow Fields", cardX: -40, cardY: -40,
+      dir: "nw", to: far.id, kind: "area", label: "Fallow Fields",
     })]);
   });
 
@@ -507,59 +507,145 @@ describe("unexplored stubs", () => {
 });
 
 describe("cards on stubs to another area or floor", () => {
-  function crossing(label = "Fallow Fields") {
+  // A room at the origin, its exits each to a room in another area named
+  // for the label wanted; `others` are more rooms of this area, unlinked.
+  function crossing(exits, others = []) {
     const m = createMap();
     const here = addArea(m, { key: "h", label: "the Downs" });
-    const there = addArea(m, { key: "t", label });
     const a = addRoom(m, { key: "A", name: "Port Road", coords: { x: 0, y: 0, z: 0 }, areaId: here.id });
-    const far = addRoom(m, { key: "F", name: "Gate", coords: { x: 5, y: 0, z: 0 }, areaId: there.id });
-    linkExit(m, a.id, "e", far.id);
+    const fars = {};
+    let n = 0;
+    for (const [dir, label] of Object.entries(exits)) {
+      const there = addArea(m, { key: `t${n}`, label });
+      fars[dir] = addRoom(m, { key: `F${n}`, name: "Gate", coords: { x: 50 + n++, y: 0, z: 0 }, areaId: there.id });
+      linkExit(m, a.id, dir, fars[dir].id);
+    }
+    for (const [x, y, name] of others) addRoom(m, { key: `o${x},${y}`, name: name || "", coords: { x, y, z: 0 }, areaId: here.id });
     setCurrent(m, a.id);
-    return { m, far };
+    return { m, fars };
   }
-
-  it("draws a card naming the area on the next cell, and returns where it is", () => {
-    const { m, far } = crossing("Fields");
-    const L = computeLayout(m, { cx: 0, cy: 0, scale: 60 });
+  const drawAt = (m, scale, labels = true) => {
+    const L = computeLayout(m, { cx: 0, cy: 0, scale });
     const ctx = recordingCtx();
-    const { cards } = draw(ctx, L, { roomSize: 30 });
-    expect(texts(ctx)).toContain("Fields");
+    const { cards } = draw(ctx, L, { roomSize: scale / 2, labels });
+    return { L, ctx, cards };
+  };
+  const meets = (a, b) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
+
+  it("shows the whole name where there's space, growing away from the room", () => {
+    const { m, fars } = crossing({ e: "Fallow Fields" });
+    const { ctx, cards } = drawAt(m, 60);
+    expect(texts(ctx)).toContain("Fallow Fields");
     expect(cards).toHaveLength(1);
     const k = cards[0];
-    expect(k).toMatchObject({ to: far.id, dir: "e", kind: "area", label: "Fields" });
-    // Centred on the next cell east: "Fields" is 36 wide here, plus padding.
-    expect([k.l, k.r]).toEqual([60 - 22, 60 + 22]);
-    expect(cardAt(cards, 60, 0)).toBe(k);
+    expect(k).toMatchObject({ to: fars.e.id, dir: "e", kind: "area", label: "Fallow Fields" });
+    // From the stub's end (east side 15 + 13.5) rightward, as wide as the
+    // name (78 here) and its padding: far wider than a cell.
+    expect(k.l).toBeCloseTo(28.5);
+    expect(k.r - k.l).toBe(86);
+    expect(k.t + k.b).toBe(0);              // centred on the exit's line
+    expect(cardAt(cards, 80, 0)).toBe(k);
     expect(cardAt(cards, 0, 0)).toBeNull();
   });
 
-  it("cuts a long name to fit the cell, keeping the full one for hover", () => {
-    const { m } = crossing("The Very Long Name Of Somewhere");
-    const L = computeLayout(m, { cx: 0, cy: 0, scale: NAME_LABEL_MIN_SCALE });
-    const ctx = recordingCtx();
-    const { cards } = draw(ctx, L, { roomSize: NAME_LABEL_MIN_SCALE / 2 });
-    const shown = texts(ctx).find((t) => t.endsWith("…"));
-    expect(shown).toBeDefined();
-    expect(cards[0].r - cards[0].l).toBeLessThanOrEqual(NAME_LABEL_MIN_SCALE - 2);
+  it("grows west leftward and north centred", () => {
+    const { cards } = drawAt(crossing({ w: "Westmarch", n: "Northfold" }).m, 60);
+    const w = cards.find((k) => k.dir === "w"), n = cards.find((k) => k.dir === "n");
+    expect(w.r).toBeLessThan(-15);
+    expect(n.b).toBeLessThan(-15);
+    expect(n.l + n.r).toBeCloseTo(0);
+  });
+
+  it("stops short of a room in the way, cutting the name to fit", () => {
+    const { m } = crossing({ e: "The Very Long Name Of Somewhere" }, [[2, 0]]);
+    const { ctx, cards } = drawAt(m, 60);
+    expect(cards).toHaveLength(1);
+    expect(cards[0].r).toBeLessThanOrEqual(120 - 15 - 3);
+    expect(texts(ctx).some((t) => t.endsWith("…"))).toBe(true);
     expect(cards[0].label).toBe("The Very Long Name Of Somewhere");
   });
 
-  it("is a plain short line with names off, or zoomed out too far to read", () => {
-    const { m } = crossing("Fields");
-    for (const [scale, labels] of [[NAME_LABEL_MIN_SCALE, false], [NAME_LABEL_MIN_SCALE - 4, true]]) {
-      const L = computeLayout(m, { cx: 0, cy: 0, scale });
-      const ctx = recordingCtx();
-      const { cards } = draw(ctx, L, { roomSize: scale / 2, labels });
+  it("stops short of an exit line rather than covering or crossing it", () => {
+    const { m } = crossing({ e: "The Very Long Name Of Somewhere" }, [[2, -1], [2, 1]]);
+    const [b, c] = Object.values(m.rooms).filter((r) => r.coords.x === 2);
+    linkExit(m, b.id, "s", c.id);
+    linkExit(m, c.id, "n", b.id);
+    const { ctx, cards } = drawAt(m, 60);    // the line runs down x = 120
+    expect(cards).toHaveLength(1);
+    expect(cards[0].r).toBeLessThan(120);
+    expect(texts(ctx).some((t) => t.endsWith("…"))).toBe(true);
+  });
+
+  it("is a plain stub where a line leaves no room for even a few letters", () => {
+    const { m } = crossing({ e: "The Very Long Name Of Somewhere" }, [[1, -1], [1, 1]]);
+    const [b, c] = Object.values(m.rooms).filter((r) => r.coords.x === 1);
+    linkExit(m, b.id, "s", c.id);
+    linkExit(m, c.id, "n", b.id);
+    expect(drawAt(m, 60).cards).toEqual([]);  // the line at x = 60: not past it
+  });
+
+  it("slides a north card off-centre where one side is short", () => {
+    const { m } = crossing({ n: "Northfold Downs" }, [[-1, -1]]);
+    const { cards } = drawAt(m, 60);
+    const k = cards[0];
+    expect(k.l).toBeGreaterThanOrEqual(-60 + 15 + 3);   // clear of the room up-left
+    expect(k.l).toBeLessThanOrEqual(0);                  // still over its stub
+    expect(k.r - k.l).toBe(15 * 6 + 8);                  // whole name: shifted, not cut
+  });
+
+  it("keeps a south card clear of its own room's name", () => {
+    const { cards } = drawAt(crossing({ s: "Southwold" }).m, 60);
+    // The name sits 17…29 under the room.
+    expect(cards[0].t).toBeGreaterThanOrEqual(29);
+  });
+
+  it("never overlaps another card, a room or a name, however crowded", () => {
+    const exits = Object.fromEntries(["n", "ne", "e", "se", "s", "sw", "w", "nw"].map((d) => [d, `Somewhere ${d} rather far off`]));
+    const { m } = crossing(exits, [[1, 1, "Corner Room"], [-2, 0, "Westside"], [0, -2, "Up North"]]);
+    for (const scale of [24, 32, 44, 60]) {
+      const { L, cards } = drawAt(m, scale);
+      const half = scale / 4;
+      const rooms = L.rooms.map((r) => ({ l: r.px - half, r: r.px + half, t: r.py - half, b: r.py + half }));
+      for (const [i, k] of cards.entries()) {
+        for (const o of [...rooms, ...cards.slice(i + 1)]) expect(meets(k, o)).toBe(false);
+      }
+    }
+  });
+
+  it("gives contested space to the exits by the current room first", () => {
+    const { m } = crossing({ e: "Alpha Somewhere Long" }, [[2, 0]]);
+    const other = Object.values(m.rooms).find((r) => r.coords.x === 2);
+    const there = addArea(m, { key: "b", label: "Beta Somewhere Long" });
+    const far = addRoom(m, { key: "B", coords: { x: 90, y: 0, z: 0 }, areaId: there.id });
+    linkExit(m, other.id, "w", far.id);
+    const { cards } = drawAt(m, 44);
+    const mine = cards.find((k) => k.dir === "e");
+    expect(mine).toBeDefined();
+    expect(cards.filter((k) => k.dir === "w").every((k) => !meets(k, mine))).toBe(true);
+  });
+
+  it("shows at smaller zooms too, but not the smallest or with names off", () => {
+    const { m } = crossing({ e: "Fields" });
+    expect(drawAt(m, 24).cards).toHaveLength(1);
+    expect(texts(drawAt(m, 24).ctx)).toContain("Fields");
+    for (const [scale, labels] of [[16, true], [60, false]]) {
+      const { ctx, cards } = drawAt(m, scale, labels);
       expect(cards).toEqual([]);
       expect(texts(ctx)).not.toContain("Fields");
     }
   });
 
+  it("carries which way a floor card goes, for its hover card", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "A", name: "Hall", coords: { x: 0, y: 0, z: 0 } });
+    const up = addRoom(m, { key: "T", name: "Tower", coords: { x: 1, y: 0, z: 1 } });
+    linkExit(m, a.id, "e", up.id);
+    setCurrent(m, a.id);
+    expect(drawAt(m, 60).cards[0]).toMatchObject({ kind: "floor", up: true, label: "↑ Tower" });
+  });
+
   it("is drawn before the rooms, so a room over it stays on top", () => {
-    const { m } = crossing("Fields");
-    const L = computeLayout(m, { cx: 0, cy: 0, scale: 60 });
-    const ctx = recordingCtx();
-    draw(ctx, L, { roomSize: 30 });
+    const { ctx } = drawAt(crossing({ e: "Fields" }).m, 60);
     const card = ctx.calls.findIndex((c) => c[0] === "fillText" && c[1] === "Fields");
     const room = ctx.calls.findIndex((c) => c[0] === "fillRect");
     expect(card).toBeGreaterThanOrEqual(0);

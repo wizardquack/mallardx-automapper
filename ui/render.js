@@ -118,9 +118,6 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       stubs.push({
         px: p.px, py: p.py, dir, unexplored: false,
         ...elsewhere(map, r, target),
-        // Its card sits on the next cell that way: the room it leads to
-        // isn't drawn in this view, so that cell is free for it.
-        cardX: p.px + v.dx * scale, cardY: p.py + v.dy * scale,
       });
     }
   }
@@ -372,16 +369,21 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
   if (ctx.setLineDash) ctx.setLineDash([]);
   // Stubs: a way not taken yet fades out in its own colour, a path running
   // on into the unknown; a way to a room out of view (another area or floor)
-  // runs to a card naming where it goes, or with names off or too small to
-  // read, is a plain short line. Drawn before rooms and names, so where a
-  // card meets either it's tucked beneath.
+  // runs to a card naming where it goes (placeCards), or where no card fits,
+  // with names off or zoomed out too far, is a plain short line.
+  const names = labels && scale >= NAME_LABEL_MIN_SCALE ? nameBoxes(ctx, layout, half, scale) : [];
+  const regionLabels = labels && scale >= REGION_LABEL_MIN_SCALE ? regionLabelBoxes(ctx, layout, scale) : [];
+  const wantCards = labels && scale >= CARD_MIN_SCALE && (layout.stubs || []).some((s) => !s.unexplored && s.label);
+  const placed = wantCards
+    ? placeCards(ctx, layout, half, scale, names.map((n) => n.box), regionLabels.map((g) => g.box))
+    : new Map();
   const cards = [];
-  const cardsShown = labels && scale >= NAME_LABEL_MIN_SCALE;
   for (const s of layout.stubs || []) {
     const p = exitPort(s.px, s.py, s.dir, half);
     if (!p) continue;
-    if (!s.unexplored && cardsShown && s.label && s.cardX != null) {
-      cards.push(drawCard(ctx, s, p, scale, c));
+    const card = placed.get(s);
+    if (card) {
+      cards.push(drawCard(ctx, s, p, card, scale, c));
       continue;
     }
     // A fading stub runs a room's width, so enough of it shows before it's gone.
@@ -419,64 +421,279 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
   ctx.globalAlpha = 1;
   if (!labels) return { cards };
 
-  if (scale >= NAME_LABEL_MIN_SCALE) {
-    ctx.font = "10px system-ui, sans-serif";
+  if (names.length) {
+    ctx.font = NAME_FONT;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    for (const r of layout.rooms) {
-      if (!r.name) continue;
-      haloText(ctx, fitText(ctx, r.name, scale - 4), r.px, r.py + half + 2, c);
-    }
+    for (const n of names) haloText(ctx, n.text, n.x, n.y, c);
   }
-  if (scale >= REGION_LABEL_MIN_SCALE) {
-    ctx.font = "bold 11px system-ui, sans-serif";
+  if (regionLabels.length) {
+    ctx.font = REGION_FONT;
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
-    // Skip a region label that would overlap one already drawn.
-    const drawn = [];
-    for (const g of layout.regions || []) {
-      if (!g.name) continue;
-      const w = ctx.measureText(g.name).width, y = g.top - scale / 2 + 2;
-      const box = { l: g.x - w / 2 - 4, r: g.x + w / 2 + 4, t: y - 13, b: y };
-      if (drawn.some((d) => box.l < d.r && box.r > d.l && box.t < d.b && box.b > d.t)) continue;
-      drawn.push(box);
-      haloText(ctx, g.name, g.x, y, c);
-    }
+    for (const g of regionLabels) haloText(ctx, g.name, g.x, g.y, c);
   }
   return { cards };
 }
 
-// Card size: its text's font, height, and padding either side.
-const CARD_FONT = "10px system-ui, sans-serif";
-const CARD_H = 15;
-const CARD_PAD = 4;
+const NAME_FONT = "10px system-ui, sans-serif";
+const NAME_H = 12;
+const REGION_FONT = "bold 11px system-ui, sans-serif";
 
-// A stub's line out to its card, and the card: a rounded box on the next cell
-// naming where the exit goes, cut to fit the cell. Returns its box, where it
-// leads, and the full name, for clicks and the hover card.
-function drawCard(ctx, s, p, scale, c) {
-  ctx.font = CARD_FONT;
-  const text = fitText(ctx, s.label, scale - 2 - CARD_PAD * 2);
-  const w = ctx.measureText(text).width + CARD_PAD * 2;
-  const box = { l: s.cardX - w / 2, r: s.cardX + w / 2, t: s.cardY - CARD_H / 2, b: s.cardY + CARD_H / 2 };
+// Room names as drawn: each cut to its cell, under its room, and the box it takes.
+function nameBoxes(ctx, layout, half, scale) {
+  ctx.font = NAME_FONT;
+  const out = [];
+  for (const r of layout.rooms) {
+    if (!r.name) continue;
+    const text = fitText(ctx, r.name, scale - 4);
+    const w = ctx.measureText(text).width, y = r.py + half + 2;
+    out.push({ text, x: r.px, y, box: { l: r.px - w / 2, r: r.px + w / 2, t: y, b: y + NAME_H } });
+  }
+  return out;
+}
+
+// Region labels as drawn: centred over each region's cluster, skipping one
+// that would overlap a label already placed.
+function regionLabelBoxes(ctx, layout, scale) {
+  ctx.font = REGION_FONT;
+  const out = [];
+  for (const g of layout.regions || []) {
+    if (!g.name) continue;
+    const w = ctx.measureText(g.name).width, y = g.top - scale / 2 + 2;
+    const box = { l: g.x - w / 2 - 4, r: g.x + w / 2 + 4, t: y - 13, b: y };
+    if (out.some((d) => overlaps(box, d.box))) continue;
+    out.push({ name: g.name, x: g.x, y, box });
+  }
+  return out;
+}
+
+function overlaps(a, b) {
+  return a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
+}
+
+// Cards are drawn from this cell size up; a little smaller below the size
+// room names show at. CARD_MAX_W keeps a very long name from running across
+// the map; CARD_GAP is the clear space kept round each card.
+export const CARD_MIN_SCALE = REGION_LABEL_MIN_SCALE;
+const CARD_PAD = 4;
+const CARD_MAX_W = 180;
+const CARD_GAP = 3;
+const cardFont = (scale) => `${scale >= 32 ? 10 : 9}px system-ui, sans-serif`;
+const cardH = (scale) => (scale >= 32 ? 15 : 13);
+
+// Where each stub to a room out of view gets its card: Map(stub → { box,
+// text, ax, ay }). A card starts where its stub ends and grows away from its
+// room (east of it rightward, west leftward, north or south across it,
+// centred where there's space), as wide as its name or the space free before
+// a room, name, region label, line or card already placed, cut to fit. Where
+// that's too cramped it tries further out along the stub, but not through
+// something in the way (bar its own room's name); where nowhere fits
+// even a few letters, it gets no card. Stubs nearest the current room are
+// placed first, so contested space goes to the exits you're standing by.
+function placeCards(ctx, layout, half, scale, nameBoxes, labelBoxes) {
+  ctx.font = cardFont(scale);
+  const h = cardH(scale);
+  const reach = CARD_MAX_W + scale * 1.5;   // how far off the canvas still touches a card on it
+  // Only what's on the canvas, or near enough its edge to matter (all of it
+  // where the context doesn't say how big it is).
+  const cv = ctx.canvas;
+  const view = cv && cv.width ? { l: -reach, t: -reach, r: cv.width + reach, b: cv.height + reach } : null;
+  const inView = (o) => !view || (o.r > view.l && o.l < view.r && o.b > view.t && o.t < view.b);
+  const obstacles = new Grid(GRID_SIZE);
+  for (const r of layout.rooms) {
+    const o = { l: r.px - half, r: r.px + half, t: r.py - half, b: r.py + half };
+    if (inView(o)) obstacles.add(o);
+  }
+  for (const o of [...nameBoxes, ...labelBoxes]) if (inView(o)) obstacles.add(o);
+  for (const o of lineObstacles(layout, half, inView)) obstacles.add(o);
+  const cur = layout.rooms.find((r) => r.isCurrent) || null;
+  const dist = (s) => (cur ? Math.hypot(s.px - cur.px, s.py - cur.py) : 0);
+  const stubs = (layout.stubs || []).filter((s) => !s.unexplored && s.label && inView(dot(s.px, s.py)))
+    .sort((a, b) => dist(a) - dist(b));
+  const out = new Map();
+  for (const s of stubs) {
+    const p = exitPort(s.px, s.py, s.dir, half);
+    if (!p) continue;
+    // Its own room's name, which its stub may run across (as lines do).
+    const own = nameBoxes.find((n) => (n.l + n.r) / 2 === s.px && n.t === s.py + half + 2) || null;
+    const full = Math.min(CARD_MAX_W, ctx.measureText(s.label).width + CARD_PAD * 2);
+    const least = ctx.measureText(s.label.slice(0, 3) + "…").width + CARD_PAD * 2;
+    let best = null;
+    // From a short stub's length out to about a cell, a few px at a time.
+    for (let d = Math.max(4, half * 0.9); d <= Math.max(scale, 12); d += 4) {
+      const ax = p.x + p.ux * d, ay = p.y + p.uy * d;
+      const t0 = cardTop(ay, p.uy, h);
+      const near = obstacles.query(ax - CARD_MAX_W - CARD_GAP, t0 - CARD_GAP, ax + CARD_MAX_W + CARD_GAP, t0 + h + CARD_GAP);
+      const free = freeAround(ax, ay, p.ux, p.uy, h, near);
+      // Blocked: going on would run its stub through whatever's in the way,
+      // unless that's only its own room's name.
+      if (!free) {
+        if (own && freeAround(ax, ay, p.ux, p.uy, h, near, own)) continue;
+        break;
+      }
+      const w = Math.min(full, free.room);
+      if (w >= least && (!best || w > best.w)) best = { ax, ay, w, free };
+      if (w >= full) break;
+    }
+    if (!best) continue;
+    const text = fitText(ctx, s.label, best.w - CARD_PAD * 2);
+    const w = Math.min(best.w, ctx.measureText(text).width + CARD_PAD * 2);
+    const box = cardBox(best.ax, best.ay, p.ux, p.uy, w, h, best.free);
+    obstacles.add(box);
+    for (const o of sampleLine([p, { x: best.ax, y: best.ay }])) obstacles.add(o);
+    out.set(s, { box, text, ax: best.ax, ay: best.ay });
+  }
+  return out;
+}
+
+// The space a card can take starting at (ax, ay), growing the way (ux, uy)
+// points: { left, right } px free either side of ax before coming within
+// CARD_GAP of an obstacle across the card's height, and `room`, how wide it
+// can be (one side, or both for a card centred on its stub). Null where
+// something's in the way at the start.
+function freeAround(ax, ay, ux, uy, h, obstacles, ignore = null) {
+  const t0 = cardTop(ay, uy, h);
+  const t = t0 - CARD_GAP, b = t0 + h + CARD_GAP;
+  let left = CARD_MAX_W, right = CARD_MAX_W;
+  for (const o of obstacles) {
+    if (o === ignore || o.b <= t || o.t >= b) continue;
+    if (o.r + CARD_GAP <= ax) left = Math.min(left, ax - o.r - CARD_GAP);
+    else if (o.l - CARD_GAP >= ax) right = Math.min(right, o.l - CARD_GAP - ax);
+    else return null;
+  }
+  const room = ux > 0.01 ? right : ux < -0.01 ? left : left + right;
+  return { left, right, room };
+}
+
+// The box of a card w wide and h high starting at (ax, ay): right of it for
+// east, left for west, else centred on it as far as `free` allows (shifted
+// off-centre where one side is short); above it for north, below for south,
+// centred for neither.
+function cardBox(ax, ay, ux, uy, w, h, free) {
+  let l;
+  if (ux > 0.01) l = ax;
+  else if (ux < -0.01) l = ax - w;
+  else l = Math.min(Math.max(ax - w / 2, ax - free.left), ax + free.right - w);
+  const t = cardTop(ay, uy, h);
+  return { l, r: l + w, t, b: t + h };
+}
+
+// A card's top: below its stub's end going south, above going north, else
+// centred on it.
+function cardTop(ay, uy, h) {
+  return uy > 0.01 ? ay : uy < -0.01 ? ay - h : ay - h / 2;
+}
+
+// Boxes bucketed in square cells `size` across, so a card only checks
+// what's near it: query(l, t, r, b) is everything in the cells that box meets.
+const GRID_SIZE = 32;
+class Grid {
+  constructor(size) { this.size = size; this.cells = new Map(); }
+  // A cell's key: i and j packed into one number (fine to ±2^20 cells).
+  key(i, j) { return (i + 1048576) * 2097152 + (j + 1048576); }
+  add(o) {
+    const z = this.size;
+    for (let i = Math.floor(o.l / z); i <= Math.floor(o.r / z); i++) {
+      for (let j = Math.floor(o.t / z); j <= Math.floor(o.b / z); j++) {
+        const k = this.key(i, j);
+        const cell = this.cells.get(k);
+        if (cell) cell.push(o); else this.cells.set(k, [o]);
+      }
+    }
+  }
+  query(l, t, r, b) {
+    const z = this.size;
+    const out = new Set();
+    for (let i = Math.floor(l / z); i <= Math.floor(r / z); i++) {
+      for (let j = Math.floor(t / z); j <= Math.floor(b / z); j++) {
+        const cell = this.cells.get(this.key(i, j));
+        if (cell) for (const o of cell) out.add(o);
+      }
+    }
+    return out;
+  }
+}
+
+// The exit lines and plain stubs as drawn, as small boxes along them, so a
+// card isn't laid over a line. Lines `inView` rejects (by their ends'
+// bounds) aren't sampled.
+function lineObstacles(layout, half, inView) {
+  const out = [];
+  for (const e of layout.exits) {
+    const span = { l: Math.min(e.x1, e.x2) - half, r: Math.max(e.x1, e.x2) + half, t: Math.min(e.y1, e.y2) - half, b: Math.max(e.y1, e.y2) + half };
+    if (!inView(span)) continue;
+    const g = exitGeometry(e, half);
+    if ([g.a, g.c1, g.c2, g.b].every((q) => onLine(g.start, g.end, q))) out.push(...sampleLine([g.start, g.end]));
+    else out.push(...sampleLine([g.start, g.a]), ...sampleCurve(g.a, g.c1, g.c2, g.b), ...sampleLine([g.b, g.end]));
+  }
+  for (const s of layout.stubs || []) {
+    if (!s.unexplored) continue;   // a card's own stub is added as it's placed
+    const p = exitPort(s.px, s.py, s.dir, half);
+    if (!p || !inView(dot(p.x, p.y))) continue;
+    const len = Math.max(8, half * 2);
+    out.push(...sampleLine([p, { x: p.x + p.ux * len, y: p.y + p.uy * len }]));
+  }
+  return out;
+}
+
+const SAMPLE_STEP = 4;
+const dot = (x, y) => ({ l: x - 1, r: x + 1, t: y - 1, b: y + 1 });
+
+// Whether q is on the line through a and b (within half a px).
+function onLine(a, b, q) {
+  const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  return Math.abs((b.x - a.x) * (q.y - a.y) - (b.y - a.y) * (q.x - a.x)) / len < 0.5;
+}
+
+// A line as boxes along it: one box where it runs straight across or down.
+function sampleLine([a, b]) {
+  if (Math.abs(a.x - b.x) < 1 || Math.abs(a.y - b.y) < 1) {
+    return [{ l: Math.min(a.x, b.x) - 1, r: Math.max(a.x, b.x) + 1, t: Math.min(a.y, b.y) - 1, b: Math.max(a.y, b.y) + 1 }];
+  }
+  const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / SAMPLE_STEP));
+  const out = [];
+  for (let i = 0; i <= n; i++) out.push(dot(a.x + (b.x - a.x) * i / n, a.y + (b.y - a.y) * i / n));
+  return out;
+}
+
+function sampleCurve(a, c1, c2, b) {
+  const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / SAMPLE_STEP) * 2);
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, u = 1 - t;
+    out.push(dot(
+      u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * b.x,
+      u * u * u * a.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * b.y,
+    ));
+  }
+  return out;
+}
+
+// A stub's line out to its card, and the card: a rounded box naming where
+// the exit goes. Returns its box, where it leads, and the full name, for
+// clicks and the hover card.
+function drawCard(ctx, s, p, card, scale, c) {
+  const { box, text, ax, ay } = card;
   ctx.beginPath();
   ctx.moveTo(p.x, p.y);
-  ctx.lineTo(s.cardX, s.cardY);       // the card covers the end of it
+  ctx.lineTo(ax, ay);
   ctx.strokeStyle = c.exit;
   ctx.lineWidth = 2;
   ctx.stroke();
   ctx.beginPath();
-  roundRect(ctx, box.l, box.t, w, CARD_H, 4);
+  roundRect(ctx, box.l, box.t, box.r - box.l, box.b - box.t, 4);
   ctx.fillStyle = c.halo;
   ctx.fill();
   ctx.strokeStyle = c.exit;
   ctx.lineWidth = 1;
   ctx.stroke();
+  ctx.font = cardFont(scale);
   ctx.fillStyle = c.label;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, s.cardX, s.cardY + 0.5);
-  return { ...box, to: s.to, dir: s.dir, kind: s.kind, label: s.label };
+  ctx.fillText(text, (box.l + box.r) / 2, (box.t + box.b) / 2 + 0.5);
+  return { ...box, to: s.to, dir: s.dir, kind: s.kind, up: s.up, label: s.label };
 }
 
 // A rounded rectangle path; square corners where the context has no roundRect.
