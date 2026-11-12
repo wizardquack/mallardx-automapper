@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { createMap, addRoom, linkExit } from "./graph.js";
+import { createMap, addRoom, linkExit, toJSON, fromJSON } from "./graph.js";
 import {
   addLink, deleteLink, setLinkOneWay, setLinkField, linkLabel, hasWay, linksOf,
+  applyServerLinks, offersLinks,
 } from "./links.js";
 import { deleteRoom, mergeRooms } from "./edits.js";
 
@@ -94,5 +95,29 @@ describe("links through deletes and merges", () => {
     mergeRooms(m, twin.id, b.id);
     expect(a.links).toEqual({ [b.id]: { name: "Lift 12" } });
     expect(b.links).toEqual({ [a.id]: { name: "Lift 12" }, [c.id]: { name: "Lift 3" } });
+  });
+});
+
+describe("offering a link (link_offers)", () => {
+  it("auto offers until the server sends a links list, even an empty one", () => {
+    const { m, a } = three();
+    expect(offersLinks(m, "auto")).toBe(true);
+    applyServerLinks(m, a, [], () => null);
+    expect(offersLinks(m, "auto")).toBe(false);
+    // Kept with the map.
+    expect(offersLinks(fromJSON(toJSON(m)), "auto")).toBe(false);
+  });
+
+  it("a frame with no list says nothing", () => {
+    const { m, a } = three();
+    applyServerLinks(m, a, undefined, () => null);
+    expect(offersLinks(m, "auto")).toBe(true);
+  });
+
+  it("always and never do as they say", () => {
+    const { m, a } = three();
+    expect(offersLinks(m, "never")).toBe(false);
+    applyServerLinks(m, a, [], () => null);
+    expect(offersLinks(m, "always")).toBe(true);
   });
 });

@@ -9,7 +9,7 @@ import { renameRoom, deleteRoom, mergeRooms, addExit, deleteExit, setOneWay,
   moveRoom, isCellOccupied, moveToArea, computePocket, movePocket,
   setRoomColor, setRoomSymbol, setRoomNote, editEach, moveRooms } from "./edits.js";
 import { legendModel, tooltipSpec, parseColor } from "./annotate.js";
-import { addLink, deleteLink, setLinkOneWay, setLinkField, linksOf, hasWay } from "./links.js";
+import { addLink, deleteLink, setLinkOneWay, setLinkField, linksOf, hasWay, offersLinks } from "./links.js";
 import { createHistory } from "./history.js";
 import { roomMenuModel, selectionMenuModel } from "./editmenu.js";
 import { addArea } from "./graph.js";
@@ -39,6 +39,7 @@ let focusAnchorId = null;             // transient center-on-this-room; cleared 
 let highlightPath = null;             // { rooms:Set, edges:Set } for the route overlay
 let cfg = { strategy: "auto", overworld: "outside" };            // area resolver config
 let walkCfg = { mode: "safe", delayMs: 250, separator: ";", timeoutMs: 4000, abortOnInput: true };
+let linkOffers = "auto";     // the link_offers setting: auto, always or never (links.js)
 let loaded = false;
 let walk = null;
 let walkTimer = null;
@@ -650,6 +651,7 @@ panel.on("load", (frame) => {
   map = frame && frame.json ? fromJSON(frame.json) : createMap();
   if (frame && frame.cfg) cfg = { ...cfg, ...frame.cfg };
   if (frame && frame.walk) walkCfg = { ...walkCfg, ...frame.walk };
+  if (frame && typeof frame.linkOffers === "string") linkOffers = frame.linkOffers;
   loaded = true;
   sawRoom = false; hideLinkOffer(); moves.clear();
   if (pendingTerrains) { setTerrains(map, pendingTerrains); pendingTerrains = null; }
@@ -697,7 +699,7 @@ function ingestRoom(seen) {
   const curId = map.currentId;
   if (curId !== prevId) hideLinkOffer();
   if (!first && !walking && prevId != null && getRoom(map, prevId) && curId != null && curId !== prevId
-      && !hasWay(map, prevId, curId)) {
+      && !hasWay(map, prevId, curId) && offersLinks(map, linkOffers)) {
     offerLink(prevId, curId);
   }
   hideHover();   // the view recentres; a card would point at where the room was
@@ -1085,7 +1087,8 @@ async function makeLink(fromId, toId, oneWay) {
 
 // ── Link offer ──────────────────────────────────────────────────────────────
 // After a move the map knows no exit or link for — a teleport, a lift, a
-// ferry — offer to link where you were to where you are.
+// ferry — offer to link where you were to where you are; on a server that
+// lists its own links, not by default (offersLinks).
 const $linkBar = document.querySelector(".link-bar");
 function offerLink(fromId, toId) {
   linkOffer = { fromId, toId };

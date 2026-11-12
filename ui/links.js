@@ -97,9 +97,13 @@ export function hasWay(map, fromId, toId) {
 // link the ones whose target is on the map. A frame without a list leaves
 // them alone; one with a list replaces them, and drops the server's links
 // it no longer lists. A link the user made or edited stays theirs.
-export function applyServerLinks(map, room, list, byKey) {
+// `additive` (a chart's): only adds. A chart is the same for every player,
+// and a room's own frame may list ways that are the player's alone (a ship
+// they may board), which a chart sent after it mustn't take away.
+export function applyServerLinks(map, room, list, byKey, { additive = false } = {}) {
   if (!Array.isArray(list)) return;
-  const keys = {};
+  map.serverWays = true;
+  const keys = additive ? { ...(room.linkKeys || {}) } : {};
   for (const l of list) {
     const v = {};
     if (l.name) v.name = l.name;
@@ -114,6 +118,7 @@ export function applyServerLinks(map, room, list, byKey) {
     listed.add(target.id);
     setServerLink(map, room.id, target.id, keys[key]);
   }
+  if (additive) return;
   const links = linksOf(room);
   for (const to of Object.keys(links)) {
     if (links[to].server && !listed.has(to)) dropOne(map, room.id, to);
@@ -165,4 +170,18 @@ export function mergeLinks(map, sourceId, targetId) {
       r.links[targetId] = link;
     }
   }
+}
+
+// ── Offering a link ─────────────────────────────────────────────────────────
+
+// Whether to offer to link a move the map knows no way for (the `link_offers`
+// setting): "always", "never", or "auto", which offers until the server has
+// sent a `links` list. A server that lists its ways that aren't exits (lifts,
+// boarding, a portal) has said every way it has; a move by neither an exit
+// nor a link is then a teleport (an admin's goto, a recall, being carried
+// off), and there's nothing to link.
+export function offersLinks(map, mode) {
+  if (mode === "never") return false;
+  if (mode === "always") return true;
+  return !map.serverWays;
 }

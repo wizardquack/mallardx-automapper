@@ -138,6 +138,22 @@ describe("importChart", () => {
     expect(linksOf(lobby)[top.id]).toMatchObject({ name: "lift", server: true });
   });
 
+  it("only adds links: a room's own frame keeps the ways it listed for you", () => {
+    const m = createMap();
+    importChart(m, [zone("ship"), zone("lobby"), zone("top")]);
+    // The berth's own frame: a lift, and a ship you may board.
+    resolveRoomSeen(m, zone("berth", { links: [{ toKey: "top", name: "lift" }, { toKey: "ship", name: "Mule", cmd: "board Mule" }] }), null);
+    // A chart after it has the lift alone, as everyone's does.
+    importChart(m, [zone("berth", { links: [{ toKey: "top", name: "lift" }, { toKey: "lobby", name: "lift" }] })]);
+    const berth = getRoomByKey(m, "berth");
+    const ids = (k) => getRoomByKey(m, k).id;
+    expect(Object.keys(linksOf(berth)).sort()).toEqual([ids("top"), ids("ship"), ids("lobby")].sort());
+    expect(linksOf(berth)[ids("ship")]).toMatchObject({ cmd: "board Mule", server: true });
+    // The room's own frame, without her, drops her.
+    resolveRoomSeen(m, zone("berth", { links: [{ toKey: "top", name: "lift" }] }), null);
+    expect(linksOf(berth)[ids("ship")]).toBeUndefined();
+  });
+
   it("clears charted once you arrive", () => {
     const m = createMap();
     importChart(m, [zone("a")]);

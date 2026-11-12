@@ -59,7 +59,7 @@ export function importChart(map, rooms, cfg) {
   const byKey = (k) => getRoomByKey(map, k);
   for (const { room, seen } of entries) {
     linkKnownExits(map, room, seen.exits);
-    applyServerLinks(map, room, seen.links, byKey);
+    applyServerLinks(map, room, seen.links, byKey, { additive: true });
   }
   for (const { room } of entries) {
     linkExitKeysInto(map, room);

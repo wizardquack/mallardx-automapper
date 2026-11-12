@@ -167,6 +167,14 @@ local function walk_cfg()
   }
 end
 
+-- Whether to offer to link a move the map knows no way for (ui/links.js
+-- offersLinks): auto, always or never.
+local function link_offers()
+  local v = settings.get("link_offers")
+  if v == "always" or v == "never" then return v end
+  return "auto"
+end
+
 -- Iframe (re)mounted: hand it the persisted map + config, then replay the last
 -- room so a reload mid-session repaints "you are here" immediately.
 panel:on_message("ready", function()
@@ -177,6 +185,7 @@ panel:on_message("ready", function()
     json = type(json) == "string" and json or nil,
     cfg = area_cfg(),
     walk = walk_cfg(),
+    linkOffers = link_offers(),
   })
   if last_terrains then panel:post("terrains", { list = last_terrains }) end
   for _, chart in ipairs(charts) do panel:post("room_chart", chart) end
@@ -238,7 +247,7 @@ mud.command("map", function(m)
     storage.delete("map")
     sendguard.reset()
     capture.reset()
-    panel:post("load", { json = nil, cfg = area_cfg(), walk = walk_cfg() })
+    panel:post("load", { json = nil, cfg = area_cfg(), walk = walk_cfg(), linkOffers = link_offers() })
     if last_room then panel:post("room_seen", last_room) end
     mud.note("automapper: map reset for this world. Re-walk to rebuild it.")
   else

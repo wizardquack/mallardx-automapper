@@ -58,7 +58,10 @@ richer frame.
   that aren't exits: a lift's other stops, a portal. Each becomes a link
   (see **Links**) once both rooms are on the map, from whichever end is seen
   first; `cmd`, where one command takes it, lets a speedwalk take it too.
-  A link the server stops listing goes; one you made or edited stays.
+  A link the server stops listing goes; one you made or edited stays. A
+  room's own frame may list ways that are the player's alone (a ship they
+  may board); a chart, being everyone's, only adds links and never drops
+  them.
 
 ## Charts (`mudstd.map.rooms`)
 
@@ -136,7 +139,11 @@ takes it (`enter portal`).
   room it leads to (change floor or area first if need be) and name it.
 - **Or let the map offer:** after a move the map knows no exit or link for,
   a bar offers to link where you were to where you are — **Link both ways**,
-  **One way**, or ✕.
+  **One way**, or ✕. The **Offer to link unexplained moves** setting is
+  *auto* by default: it offers until the server sends a `links` list, then
+  stops, since a server that lists its own ways that aren't exits has said
+  every way it has, and a move by neither (a staff teleport, a recall, being
+  carried off) has nothing to link. *Always* and *Never* do as they say.
 - **Edit:** **Links ▸** *a link* ▸ View, Rename…, Command…, Make one-way /
   two-way, Delete link.
 

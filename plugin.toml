@@ -1,6 +1,6 @@
 id = "net.mallard.automapper"
 name = "Automapper"
-version = "0.9.0"
+version = "0.10.0"
 description = "Universal automapper: builds a live map as you walk — GMCP mudstd.room (preferred; honours server coords and area names) or room.info, or name+exits capture on MUDs without GMCP."
 language = "lua"
 entry = "src/main.lua"
@@ -92,6 +92,17 @@ type = "bool"
 default = true
 label = "Typed input cancels speedwalk"
 description = "When on, typing any command while a speedwalk is running cancels it. '/map stop' always cancels regardless."
+
+[settings.link_offers]
+type = "enum"
+default = "auto"
+label = "Offer to link unexplained moves"
+description = "After a move the map knows no exit or link for, a bar offers to link the two rooms. 'auto' offers until the server sends its own links (mudstd extension), then takes such a move as a teleport; 'always' and 'never' do as they say."
+choices = [
+  { value = "auto", label = "Auto (recommended)" },
+  { value = "always", label = "Always" },
+  { value = "never", label = "Never" },
+]
 
 # ── Non-GMCP capture (Phase 4) ────────────────────────────────────────────────
 # For MUDs that do NOT emit room.info GMCP. The engine fingerprints each room

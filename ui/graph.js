@@ -18,6 +18,9 @@ export function createMap() {
     terrains: {},
     // Charts imported (chart.js): { [chartName]: version }.
     charts: {},
+    // True once the server has sent a `links` list (links.js): it says where
+    // its ways that aren't exits go, so a move by neither is a teleport.
+    serverWays: false,
   };
 }
 
@@ -143,6 +146,7 @@ export function fromJSON(str) {
         currentId: parsed.currentId ?? null,
         terrains: parsed.terrains || {},
         charts: parsed.charts || {},
+        serverWays: parsed.serverWays === true,
       };
     }
     if (parsed.version === 1) return migrateV1(parsed);
