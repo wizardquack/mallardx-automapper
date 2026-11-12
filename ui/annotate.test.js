@@ -158,3 +158,12 @@ describe("tooltipSpec", () => {
     expect(tooltipSpec(m, r)).toEqual({ title: `#${r.id}`, rows: [] });
   });
 });
+
+describe("tooltipSpec: charted", () => {
+  it("says a charted room hasn't been visited", () => {
+    const m = createMap();
+    const r = addRoom(m, { key: "k", name: "Gate" });
+    r.charted = true;
+    expect(tooltipSpec(m, r).rows[0]).toEqual({ label: "Visited", value: "Not yet (charted)" });
+  });
+});

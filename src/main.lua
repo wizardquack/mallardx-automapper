@@ -12,6 +12,7 @@ local roomsource = require("roomsource")
 local panel = mud.panel("map")
 local last_room = nil  -- replayed to the iframe on (re)mount
 local last_terrains = nil  -- likewise the last mudstd.room.terrain list
+local charts = {}  -- this session's mudstd.map.rooms, replayed on (re)mount
 local learn_handle = nil  -- catch-all trigger handle while '/map learn' is on
 
 -- room.info → normalized room_seen. `identifier` is the stable room key.
@@ -41,11 +42,23 @@ gmcp.on("mudstd.room.terrain", function(_pkg, data)
   panel:post("terrains", { list = last_terrains })
 end)
 
+-- mudstd.map.rooms: a chart, many rooms the character knows without walking
+-- them. Kept for the session and replayed when the panel (re)mounts, so one
+-- sent at login before the panel is up isn't lost; the panel skips a chart
+-- part it already holds at that version.
+gmcp.on("mudstd.map.rooms", function(_pkg, data)
+  local chart = roomframe.chart(data)
+  if not chart or #chart.rooms == 0 then return end
+  charts[#charts + 1] = chart
+  panel:post("room_chart", chart)
+end)
+
 -- A new session may be a different server: forget that the last one sent
 -- mudstd.room.info. (Also fires on plugin reload; a fresh load starts clear.)
 -- The panel hears of it too: where you log in is no move to offer a link for.
 world.on("connect", function()
   roomsource.reset()
+  charts = {}
   panel:post("connected", {})
 end)
 
@@ -166,6 +179,7 @@ panel:on_message("ready", function()
     walk = walk_cfg(),
   })
   if last_terrains then panel:post("terrains", { list = last_terrains }) end
+  for _, chart in ipairs(charts) do panel:post("room_chart", chart) end
   if last_room then panel:post("room_seen", last_room) end
 end)
 

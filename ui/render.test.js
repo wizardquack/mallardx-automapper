@@ -197,7 +197,8 @@ function recordingCtx() {
   const calls = [];
   const ctx = {
     calls,
-    fillRect: (...a) => calls.push(["fillRect", ctx.fillStyle, ...a]),
+    globalAlpha: 1,
+    fillRect: (...a) => calls.push(["fillRect", ctx.fillStyle, ...a, ctx.globalAlpha]),
     strokeRect: () => {}, beginPath: () => {}, moveTo: () => {}, lineTo: () => {}, stroke: () => {},
     strokeText: () => {}, closePath: () => {}, arc: () => {},
     fill: () => calls.push(["fill", ctx.fillStyle]),
@@ -263,7 +264,7 @@ describe("draw: annotations", () => {
     const ctx = recordingCtx();
     draw(ctx, layoutWith(NAME_LABEL_MIN_SCALE), { roomSize: 22 });
     const tint = ctx.calls.find((c) => c[0] === "fillRect" && String(c[1]).startsWith("hsla"));
-    expect(tint.slice(2)).toEqual([-22, -22, 44, 44]);
+    expect(tint.slice(2, 6)).toEqual([-22, -22, 44, 44]);
     expect(texts(ctx)).toEqual(expect.arrayContaining(["⇅", "Hub", "B", "hub"]));
   });
 
@@ -338,5 +339,21 @@ describe("roomsInRect", () => {
     expect(roomsInRect(layout, -5, -5, 32, 5, 20)).toEqual(["1", "2"]);
     expect(roomsInRect(layout, 32, 5, -5, -5, 20)).toEqual(["1", "2"]);
     expect(roomsInRect(layout, 11, 11, 29, 29, 20)).toEqual([]);
+  });
+});
+
+describe("charted rooms", () => {
+  it("are flagged in the layout and drawn faded", () => {
+    const { m, a } = sampleMap();
+    a.charted = true;
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    expect(L.rooms.find((r) => r.id === a.id).charted).toBe(true);
+    expect(L.rooms.filter((r) => r.id !== a.id).every((r) => r.charted === false)).toBe(true);
+    const ctx = recordingCtx();
+    draw(ctx, L, { roomSize: 20 });
+    const alphas = ctx.calls.filter((c) => c[0] === "fillRect").map((c) => c[c.length - 1]);
+    expect(alphas).toContain(0.45);
+    expect(alphas).toContain(1);
+    expect(ctx.globalAlpha).toBe(1);
   });
 });

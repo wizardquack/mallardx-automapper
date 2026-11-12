@@ -15,6 +15,7 @@ import { roomMenuModel, selectionMenuModel } from "./editmenu.js";
 import { addArea } from "./graph.js";
 import { resolveRoomSeen, contradicts } from "./identity.js";
 import { seenFromFrame, terrainsFromFrame } from "./seen.js";
+import { importChart } from "./chart.js";
 import { fingerprint, suggestNamePattern, suggestExitsPattern } from "./fingerprint.js";
 import { computeLayout, draw, roomsInRect, DEFAULT_COLORS } from "./render.js";
 import { findPath } from "./pathfind.js";
@@ -50,6 +51,7 @@ let lastLayout = { rooms: [] };
 let lastRoomSize = 0;
 let pocketPreview = null;   // { ids:Set<string>, areaId:string } while previewing
 let pendingTerrains = null; // mudstd.room.terrain received before the map loaded
+let pendingCharts = [];     // mudstd.map.rooms received before the map loaded
 let sawRoom = false;        // a room has arrived since the map loaded or we connected
 let selection = new Set();  // room ids picked with shift-click / shift-drag
 let marquee = null;         // { x0, y0, x1, y1 } canvas px while shift-dragging a box
@@ -634,6 +636,8 @@ panel.on("load", (frame) => {
   loaded = true;
   sawRoom = false; hideLinkOffer(); moves.clear();
   if (pendingTerrains) { setTerrains(map, pendingTerrains); pendingTerrains = null; }
+  for (const frame of pendingCharts) applyChart(frame);
+  pendingCharts = [];
   stopWalkTimer(); walk = null; highlightPath = null;
   focusCurrentArea();
   rebuildAreaSelect();
@@ -696,6 +700,30 @@ panel.on("terrains", (frame) => {
   const defs = terrainsFromFrame(frame);
   if (!loaded) { pendingTerrains = { ...(pendingTerrains || {}), ...defs }; return; }
   if (setTerrains(map, defs)) { redraw(); schedulePersist(); }
+});
+
+// mudstd.map.rooms: a chart, many rooms at once (chart.js). Nobody moves, so
+// the view stays where it is; the area picker learns any new areas. A chart
+// part already held at this version is skipped.
+function applyChart(frame) {
+  if (!frame || !Array.isArray(frame.rooms)) return false;
+  const name = typeof frame.chart === "string" && frame.chart ? frame.chart : null;
+  const version = typeof frame.version === "string" && frame.version ? frame.version : null;
+  const part = Number.isInteger(frame.part) ? frame.part : 1;
+  const tag = name ? `${name}#${part}` : null;
+  if (tag && version && map.charts[tag] === version) return false;
+  const seen = frame.rooms.map(seenFromFrame).filter(Boolean);
+  importChart(map, seen, cfg);
+  if (tag && version) map.charts[tag] = version;
+  return true;
+}
+
+panel.on("room_chart", (frame) => {
+  if (!loaded) { pendingCharts.push(frame); return; }
+  if (!applyChart(frame)) return;
+  rebuildAreaSelect();
+  redraw();
+  schedulePersist();
 });
 
 panel.on("room_seen", (frame) => {

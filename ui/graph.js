@@ -16,6 +16,8 @@ export function createMap() {
     currentId: null,
     // mudstd.room.terrain definitions: { [id]: { label, color } }.
     terrains: {},
+    // Charts imported (chart.js): { [chartName]: version }.
+    charts: {},
   };
 }
 
@@ -31,6 +33,8 @@ export function createMap() {
 //                  (links.js); the user's, or the server's `links` extension.
 //   linkKeys     — { [targetKey]: { name?, cmd? } }, the links the room last
 //                  reported by key, for targets not yet on the map.
+//   charted      — true for a room the server sent in a chart (chart.js) that
+//                  you haven't been in yet; cleared on arrival.
 // and fields only the user sets (edits.js): color, symbol, note.
 // Areas may carry `regions` — { [regionKey]: name }.
 export function addRoom(map, { key, fp, name, env, coords, areaId }) {
@@ -135,6 +139,7 @@ export function fromJSON(str) {
         nextAreaId: parsed.nextAreaId || 1,
         currentId: parsed.currentId ?? null,
         terrains: parsed.terrains || {},
+        charts: parsed.charts || {},
       };
     }
     if (parsed.version === 1) return migrateV1(parsed);

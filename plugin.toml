@@ -16,7 +16,9 @@ license = "MIT"
 # seen in a session, is used instead of room.info; mudstd.room.terrain defines
 # the terrains its rooms refer to (label + colour). Glob-matched, so
 # "mudstd.room.info" grants exactly that message.
-gmcp_access = ["room.info", "mudstd.room.info", "mudstd.room.terrain"]
+# mudstd.map.rooms is a chart: many rooms in that same shape, sent at once for
+# a place the character knows without having walked it.
+gmcp_access = ["room.info", "mudstd.room.info", "mudstd.room.terrain", "mudstd.map.rooms"]
 # Phase 2 speedwalk issues movement commands via mud.send (compass dirs, in, out).
 sends = true
 
@@ -26,7 +28,8 @@ sends = true
 # they receive a versionless token. The advertised token is the PACKAGE name
 # (mudstd.room), while gmcp.on subscribes to its message (mudstd.room.info) —
 # advertise format and subscription prefix are separate.
-advertise = ["room.info 1", "mudstd.room 1"]
+# mudstd.map is its own package so a server can tell this client takes charts.
+advertise = ["room.info 1", "mudstd.room 1", "mudstd.map 1"]
 
 [panels.map]
 title        = "Map"

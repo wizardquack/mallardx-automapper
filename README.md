@@ -52,6 +52,27 @@ richer frame.
   first; `cmd`, where one command takes it, lets a speedwalk take it too.
   A link the server stops listing goes; one you made or edited stays.
 
+## Charts (`mudstd.map.rooms`)
+
+A server can send many rooms at once: a place the character knows without
+having walked it (a starting town, a bought map). The mapper advertises
+`mudstd.map 1`; the server sends
+
+```json
+mudstd.map.rooms { "chart": "old-town", "version": "v3", "part": 1, "parts": 2,
+                   "rooms": [ { "id": "r1", "name": "Gate", "area": "town", "coords": {…}, "exits": {…} }, … ] }
+```
+
+Each room is in the `mudstd.room.info` shape, extensions included. The
+rooms are added without moving you, and linked by their exits and links
+whatever order they come in. A room the server gives no `coords` is placed
+one step from a placed neighbour along a compass exit, else in a free cell,
+so send coords where you can. Rooms you haven't been in are **charted**:
+drawn faded with a dashed border, and the hover card says so. You can route
+and walk to them, and the mark goes when you arrive. Your colours, symbols
+and notes are never touched. A chart part already held at the same
+`version` is skipped. Keep each part to a few hundred rooms.
+
 `in` and `out` are exits with no compass direction: the map stores them, and
 `/goto`, click-to-walk and the speedwalk route through them (sending `in` and
 `out`), but they don't place rooms or draw lines — the room through a hatch

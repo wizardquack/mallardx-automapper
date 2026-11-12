@@ -50,6 +50,8 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
     rooms.push({
       id, px, py, cell,
       isCurrent: cur != null && id === cur.id,
+      // Sent in a chart, not yet visited (chart.js): drawn faded.
+      charted: !!r.charted,
       onPath: pathRooms ? pathRooms.has(id) : false,
       env: r.env,
       name: r.name || "",
@@ -197,6 +199,9 @@ function regionLayout(map, rooms, areaId, z, anchor, cx, cy, scale) {
 // getComputedStyle). Defaults mirror the original dark palette so tests and any
 // out-of-host use still paint correctly. `path`/`current` are deliberately kept
 // vivid (accent + a fixed amber "you are here") rather than tied to muted chrome.
+// How opaque a charted, unvisited room is drawn.
+const CHARTED_ALPHA = 0.45;
+
 export const DEFAULT_COLORS = {
   exit: "#6b7280",         // plain exit line  (→ --fg-muted)
   exitPath: "#38bdf8",     // highlighted route line (→ --accent)
@@ -230,12 +235,16 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
   }
   if (ctx.setLineDash) ctx.setLineDash([]);
   for (const r of layout.rooms) {
+    // A charted room you haven't been in is faded, with a dashed border.
+    ctx.globalAlpha = r.charted ? CHARTED_ALPHA : 1;
     ctx.fillStyle = r.fill || envColor(r.env);
     ctx.fillRect(r.px - half, r.py - half, roomSize, roomSize);
     if (r.isCurrent) { ctx.strokeStyle = c.current; ctx.lineWidth = 3; }
     else if (r.onPath) { ctx.strokeStyle = c.roomPath; ctx.lineWidth = 2; }
     else { ctx.strokeStyle = c.roomStroke; ctx.lineWidth = 1; }
+    if (ctx.setLineDash) ctx.setLineDash(r.charted ? [3, 2] : []);
     ctx.strokeRect(r.px - half, r.py - half, roomSize, roomSize);
+    if (ctx.setLineDash) ctx.setLineDash([]);
     const marked = r.up || r.down || r.link;
     if (r.glyph && roomSize >= GLYPH_MIN_ROOM) {
       // Beside a mark the glyph is smaller and left of centre, clear of it.
@@ -246,6 +255,7 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
     }
     if (marked) drawFloorMarks(ctx, r, half);
   }
+  ctx.globalAlpha = 1;
   if (!labels) return;
 
   if (scale >= NAME_LABEL_MIN_SCALE) {

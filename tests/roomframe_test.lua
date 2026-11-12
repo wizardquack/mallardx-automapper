@@ -107,5 +107,30 @@ check("terrain # accepted", ts[2].color, "#00ff00")
 check("terrain bad color dropped", ts[3].color, nil)
 check("terrains non-table", #roomframe.terrains("x"), 0)
 
+-- chart: mudstd.map.rooms, each room normalized like mudstd.room.info.
+local ch = roomframe.chart({
+  chart = "old-town", version = "v1", part = 2,
+  rooms = {
+    { id = "r1", name = "Gate", area = "town", coords = { x = 1, y = 2 },
+      exits = { NORTH = { id = "r2" } }, links = { { id = "r9", name = "lift" } } },
+    { name = "no id" },
+    { id = 7, name = "Numbered" },
+  },
+})
+check("chart name", ch and ch.chart, "old-town")
+check("chart version", ch and ch.version, "v1")
+check("chart part", ch and ch.part, 2)
+check("chart drops rooms without id", ch and #ch.rooms, 2)
+check("chart room key", ch and ch.rooms[1].key, "r1")
+check("chart room area", ch and ch.rooms[1].areaTag, "town")
+check("chart room coords", ch and ch.rooms[1].coords.y, 2)
+check("chart room exits", ch and ch.rooms[1].exits[1].toKey, "r2")
+check("chart room exit dir", ch and ch.rooms[1].exits[1].dir, "n")
+check("chart room links", ch and ch.rooms[1].links[1].toKey, "r9")
+check("chart numeric id", ch and ch.rooms[2].key, "7")
+check("chart without rooms", roomframe.chart({ chart = "x" }), nil)
+check("chart non-table", roomframe.chart("x"), nil)
+check("chart bad part dropped", roomframe.chart({ rooms = {}, part = 1.5 }).part, nil)
+
 if failures > 0 then os.exit(1) end
 io.write("\nall roomframe tests passed\n")

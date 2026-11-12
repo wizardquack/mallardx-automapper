@@ -33,6 +33,7 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
     existing.env = seen.env || existing.env;
     refreshAreaName(map, existing, seen);
     refreshAnnotations(map, existing, seen);
+    delete existing.charted;   // been here now (chart.js)
     // Server coordinates win, even over where the room was placed before.
     if (seen.coords) placeAtServerCoords(map, existing, seen.coords, seen.wrap);
     // Record the traversed edge even when the destination already exists —
@@ -76,7 +77,7 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
 // list replaces the room's (an empty one clears it), a region is set and its
 // name recorded on the area. A frame without them leaves the room alone. The
 // user's colour, symbol and note are never touched here.
-function refreshAnnotations(map, room, seen) {
+export function refreshAnnotations(map, room, seen) {
   if (Array.isArray(seen.tags)) {
     if (seen.tags.length) room.tags = seen.tags.slice();
     else delete room.tags;
@@ -96,7 +97,7 @@ function refreshAnnotations(map, room, seen) {
 // the area's first free cell; one the server did place stays (two rooms the
 // server puts in one cell is the server's call). Where the server says x
 // comes round (a ring), the room keeps it as `wrapX` for render.js.
-function placeAtServerCoords(map, room, sc, wrap) {
+export function placeAtServerCoords(map, room, sc, wrap) {
   const c = fromServer(sc);
   room.coords = c;
   room.serverCoords = true;
@@ -163,7 +164,7 @@ function inferDirection(map, prev, key) {
 // of it can be matched to the exit taken even when its target wasn't yet on
 // the map. Replaced wholesale on each report; frames without an exits list
 // (room.info) leave it alone.
-function recordExitKeys(room, exits) {
+export function recordExitKeys(room, exits) {
   if (!Array.isArray(exits)) return;
   const byDir = {};
   for (const ex of exits) {
@@ -177,7 +178,7 @@ function recordExitKeys(room, exits) {
 // walking that corridor). We never fabricate the reverse or create stub rooms:
 // the reverse arrives when the neighbour reports its own exits, and unknown
 // targets link later once visited. Idempotent — safe to re-run every visit.
-function linkKnownExits(map, room, exits) {
+export function linkKnownExits(map, room, exits) {
   if (!Array.isArray(exits)) return;
   for (const ex of exits) {
     if (!ex || !isDirection(ex.dir) || ex.toKey == null) continue;
@@ -265,7 +266,7 @@ function roomAtCell(map, areaId, x, y, z) {
 
 // Scan deterministically from the area's origin along +x on z:0 for a cell not
 // yet occupied by a room in that area.
-function firstFreeCell(map, areaId) {
+export function firstFreeCell(map, areaId) {
   const occupied = new Set();
   for (const id of Object.keys(map.rooms)) {
     const r = map.rooms[id];

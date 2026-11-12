@@ -205,6 +205,7 @@ export function legendModel(map, rooms) {
 // The host tooltip spec ({ title, body, rows }) for a room's hover card.
 export function tooltipSpec(map, room) {
   const rows = [];
+  if (room.charted) rows.push({ label: "Visited", value: "Not yet (charted)" });
   const region = regionName(map, room);
   if (region) rows.push({ label: "Region", value: region });
   const terrain = terrainLabel(map, room.env);

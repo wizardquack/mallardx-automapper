@@ -138,4 +138,24 @@ function M.normalize(data, with_exits)
   return room
 end
 
+-- mudstd.map.rooms: a chart, many rooms at once, each in the
+-- mudstd.room.info shape. -> { chart, version, part, rooms = { room_seen... } },
+-- or nil when there's no rooms list. Rooms without an id are dropped.
+function M.chart(data)
+  if type(data) ~= "table" or type(data.rooms) ~= "table" then return nil end
+  local rooms = {}
+  for _, r in ipairs(data.rooms) do
+    local room = M.normalize(r, true)
+    if room then rooms[#rooms + 1] = room end
+  end
+  local part = data.part
+  if not (finite(part) and part == math.floor(part) and part >= 1) then part = nil end
+  return {
+    chart = str(data.chart),
+    version = str(data.version),
+    part = part,
+    rooms = rooms,
+  }
+end
+
 return M
