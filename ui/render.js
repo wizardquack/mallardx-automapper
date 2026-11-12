@@ -301,8 +301,28 @@ export const DEFAULT_COLORS = {
   current: "#facc15",      // the room you're standing in
   label: "#e5e7eb",        // room and region names (→ --fg)
   halo: "#0b0e14",         // outline behind names, for legibility (→ --bg)
-  unexplored: "#fb923c",   // stub of an exit not taken yet
+  unexplored: "#fb923c",   // stub of an exit not taken yet (fades out)
 };
+
+// A stroke that runs from `color` at (x1, y1) to clear at (x2, y2). The clear
+// end is the same colour at no alpha, so the fade doesn't dim through grey.
+// Plain `color` where the context has no gradients.
+function fadeOut(ctx, x1, y1, x2, y2, color) {
+  if (!ctx.createLinearGradient) return color;
+  const g = ctx.createLinearGradient(x1, y1, x2, y2);
+  g.addColorStop(0, color);
+  g.addColorStop(1, clearOf(color));
+  return g;
+}
+
+// `color` (#rgb or #rrggbb) at no alpha; "transparent" for any other form.
+export function clearOf(color) {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(color).trim());
+  if (!m) return "transparent";
+  const h = m[1].length === 3 ? m[1].replace(/./g, "$&$&") : m[1];
+  const n = parseInt(h, 16);
+  return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, 0)`;
+}
 
 export function draw(ctx, layout, { roomSize, colors, labels = true }) {
   const c = { ...DEFAULT_COLORS, ...(colors || {}) };
@@ -330,25 +350,21 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
     ctx.stroke();
   }
   if (ctx.setLineDash) ctx.setLineDash([]);
-  // Stubs: a way not taken yet ends in a small ring, in its own colour; a way
-  // to a room out of view (another area or floor) is a plain short line.
+  // Stubs: a way not taken yet fades out in its own colour, a path running
+  // on into the unknown; a way to a room out of view (another area or floor)
+  // is a plain short line.
   for (const s of layout.stubs || []) {
     const p = exitPort(s.px, s.py, s.dir, half);
     if (!p) continue;
-    const len = Math.max(4, half * 0.9);
+    // A fading stub runs a room's width, so enough of it shows before it's gone.
+    const len = s.unexplored ? Math.max(8, half * 2) : Math.max(4, half * 0.9);
     const ex = p.x + p.ux * len, ey = p.y + p.uy * len;
     ctx.beginPath();
     ctx.moveTo(p.x, p.y);
     ctx.lineTo(ex, ey);
-    ctx.strokeStyle = s.unexplored ? c.unexplored : c.exit;
+    ctx.strokeStyle = s.unexplored ? fadeOut(ctx, p.x, p.y, ex, ey, c.unexplored) : c.exit;
     ctx.lineWidth = 2;
     ctx.stroke();
-    if (s.unexplored) {
-      const rad = Math.max(2, half * 0.2);
-      ctx.beginPath();
-      ctx.arc(ex + p.ux * rad, ey + p.uy * rad, rad, 0, Math.PI * 2);
-      ctx.stroke();
-    }
   }
   ctx.lineCap = "butt";
   for (const r of layout.rooms) {

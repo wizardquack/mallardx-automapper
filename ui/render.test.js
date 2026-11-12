@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createMap, addRoom, linkExit, setCurrent, addArea } from "./graph.js";
-import { computeLayout, envColor, draw, fitText, glyphOrigin, roomsInRect, exitPort, exitGeometry, NAME_LABEL_MIN_SCALE } from "./render.js";
+import { computeLayout, envColor, draw, fitText, glyphOrigin, roomsInRect, exitPort, clearOf, exitGeometry, NAME_LABEL_MIN_SCALE } from "./render.js";
 import { setTerrains } from "./graph.js";
 
 function sampleMap() {
@@ -202,6 +202,11 @@ function recordingCtx() {
     strokeRect: () => {}, beginPath: () => {}, moveTo: () => {}, lineTo: () => {}, stroke: () => {},
     bezierCurveTo: () => {},
     strokeText: () => {}, closePath: () => {}, arc: () => {},
+    createLinearGradient: (...a) => {
+      const g = { stops: [], addColorStop: (o, col) => g.stops.push([o, col]) };
+      calls.push(["gradient", g, ...a]);
+      return g;
+    },
     fill: () => calls.push(["fill", ctx.fillStyle]),
     fillText: (t, x, y) => calls.push(["fillText", t, x, y]),
     measureText: (t) => ({ width: t.length * 6 }),
@@ -440,5 +445,33 @@ describe("exit stubs", () => {
     b.exitKeys = { s: "A" };               // b lists `s`, unlinked — still unexplored
     const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
     expect(L.stubs).toEqual([{ px: 0, py: -40, dir: "s", unexplored: true }]);
+  });
+});
+
+describe("unexplored stubs", () => {
+  it("fade from the stub colour at the room to clear at the tip, with no ring", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "A", name: "A", coords: { x: 0, y: 0, z: 0 } });
+    a.exitDirs = ["e"];
+    setCurrent(m, a.id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    const ctx = recordingCtx();
+    let arcs = 0;
+    ctx.arc = () => { arcs++; };
+    draw(ctx, L, { roomSize: 20, colors: { unexplored: "#fb923c" } });
+    const grads = ctx.calls.filter((c) => c[0] === "gradient");
+    expect(grads).toHaveLength(1);
+    const [, g, x1, y1, x2, y2] = grads[0];
+    expect([x1, y1]).toEqual([10, 0]);       // from the east side of the room
+    expect(x2).toBe(30);                     // outward, a room's width (20)
+    expect(y2).toBe(0);
+    expect(g.stops).toEqual([[0, "#fb923c"], [1, "rgba(251, 146, 60, 0)"]]);
+    expect(arcs).toBe(0);
+  });
+
+  it("clearOf keeps the hue at no alpha, and falls back for other forms", () => {
+    expect(clearOf("#f80")).toBe("rgba(255, 136, 0, 0)");
+    expect(clearOf("#FB923C")).toBe("rgba(251, 146, 60, 0)");
+    expect(clearOf("rgb(1, 2, 3)")).toBe("transparent");
   });
 });
