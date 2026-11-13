@@ -9,14 +9,10 @@
   <header class="map-header">
     <select class="area-select" title="Area"></select>
     <span class="room-name">Not mapping</span>
-    <span class="spacer"></span>
-    <button class="z-down" type="button" title="Down a floor">▼</button>
-    <button class="z-up"   type="button" title="Up a floor">▲</button>
-    <button class="labels-toggle" type="button" title="Show room and region names">Aa</button>
-    <button class="legend-toggle" type="button" title="Legend">?</button>
-    <button class="recenter" type="button" title="Recenter on me">⌖</button>
-    <button class="zoom-out" type="button" title="Zoom out">−</button>
-    <button class="zoom-in"  type="button" title="Zoom in">+</button>
+    <span class="header-actions">
+      <button class="labels-toggle" type="button" title="Show room and region names">Aa</button>
+      <button class="legend-toggle" type="button" title="Legend">?</button>
+    </span>
   </header>
   <div class="search-bar">
     <input class="search-box" type="text" placeholder="Find a room… (Enter to walk)" />
@@ -24,6 +20,19 @@
   </div>
   <div class="canvas-wrap">
     <canvas class="map-canvas"></canvas>
+    <div class="view-controls">
+      <div class="view-group">
+        <button class="z-up"   type="button" title="Up a floor">▲</button>
+        <button class="z-down" type="button" title="Down a floor">▼</button>
+      </div>
+      <div class="view-group">
+        <button class="zoom-in"  type="button" title="Zoom in">+</button>
+        <button class="zoom-out" type="button" title="Zoom out">−</button>
+      </div>
+      <div class="view-group">
+        <button class="recenter" type="button" title="Recenter on me">⌖</button>
+      </div>
+    </div>
     <div class="legend" hidden></div>
     <div class="pocket-bar" hidden>
       <span class="pocket-bar-label" title="Move highlighted rooms to area?">Move highlighted rooms to area?</span>

@@ -125,6 +125,9 @@ right, ▼ bottom right), since only one floor is drawn at a time. The hover
 card names the rooms above and below, and the room's right-click menu has
 **▲ View …** / **▼ View …** to show that floor, centred on the room.
 
+The floor, zoom and recenter buttons float in the map's top-left corner.
+The scroll wheel or a trackpad pinch also zooms, towards the pointer.
+
 Room names are drawn at the two largest zooms and region names from the
 middle one; **Aa** turns both off. **?** opens a legend of the terrains,
 glyphs and regions in view. Hover a room for its name, region, terrain, tags

@@ -797,12 +797,41 @@ $area.addEventListener("change", () => {
   viewedAreaId = $area.value; viewedZ = null; focusAnchorId = null;
   panX = 0; panY = 0; redraw();
 });
-document.querySelector(".zoom-in").addEventListener("click", () => {
-  zoomIdx = Math.min(ZOOMS.length - 1, zoomIdx + 1); redraw();
-});
-document.querySelector(".zoom-out").addEventListener("click", () => {
-  zoomIdx = Math.max(0, zoomIdx - 1); redraw();
-});
+// Step the zoom by `step` levels, keeping the map point under canvas pixel
+// (px, py) fixed — the canvas centre for the buttons, the pointer for the wheel.
+function zoomBy(step, px = $canvas.clientWidth / 2, py = $canvas.clientHeight / 2) {
+  const next = Math.max(0, Math.min(ZOOMS.length - 1, zoomIdx + step));
+  if (next === zoomIdx) return;
+  const k = ZOOMS[next] / ZOOMS[zoomIdx];
+  const cx = $canvas.clientWidth / 2 + panX, cy = $canvas.clientHeight / 2 + panY;
+  panX = px - (px - cx) * k - $canvas.clientWidth / 2;
+  panY = py - (py - cy) * k - $canvas.clientHeight / 2;
+  zoomIdx = next;
+  redraw();
+}
+document.querySelector(".zoom-in").addEventListener("click", () => zoomBy(1));
+document.querySelector(".zoom-out").addEventListener("click", () => zoomBy(-1));
+
+// Wheel / trackpad zoom towards the pointer. Zoom levels are discrete, so
+// deltas accumulate until they amount to a step; a trackpad pinch arrives as a
+// wheel event with ctrlKey and much smaller deltas, so it counts for more.
+let wheelAcc = 0, wheelResetTimer = null;
+const WHEEL_STEP = 100;
+$canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  hideHover();
+  const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? $canvas.clientHeight : 1;
+  const d = e.deltaY * unit * (e.ctrlKey ? 5 : 1);
+  if (Math.sign(d) !== Math.sign(wheelAcc)) wheelAcc = 0;
+  wheelAcc += d;
+  clearTimeout(wheelResetTimer);
+  wheelResetTimer = setTimeout(() => { wheelAcc = 0; }, 200);
+  if (Math.abs(wheelAcc) < WHEEL_STEP) return;
+  const step = wheelAcc < 0 ? 1 : -1;     // wheel up / pinch out = zoom in
+  wheelAcc = 0;
+  const rect = $canvas.getBoundingClientRect();
+  zoomBy(step, e.clientX - rect.left, e.clientY - rect.top);
+}, { passive: false });
 document.querySelector(".recenter").addEventListener("click", () => { focusCurrentArea(); redraw(); });
 document.querySelector(".z-up").addEventListener("click", () => {
   const base = viewedZ != null ? viewedZ : (currentRoom(map)?.coords.z ?? 0);
@@ -950,7 +979,6 @@ function hoverCard(k) {
   }, 350);
 }
 $canvas.addEventListener("mouseleave", hideHover);
-$canvas.addEventListener("wheel", hideHover, { passive: true });
 
 $canvas.addEventListener("mousedown", (e) => {
   hideHover();
