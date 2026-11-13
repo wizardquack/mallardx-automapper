@@ -105,3 +105,13 @@ describe("seenFromFrame: links", () => {
     expect(seenFromFrame({ key: "r" }).links).toBeUndefined();
   });
 });
+
+describe("seenFromFrame exits", () => {
+  it("reads an empty Lua table as no exits, not as no list", () => {
+    expect(seenFromFrame({ key: "A", exits: {} }).exits).toEqual([]);
+  });
+
+  it("forwards an exit with no key", () => {
+    expect(seenFromFrame({ key: "A", exits: [{ dir: "w" }] }).exits).toEqual([{ dir: "w" }]);
+  });
+});

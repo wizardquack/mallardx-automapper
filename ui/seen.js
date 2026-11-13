@@ -13,8 +13,9 @@ export function seenFromFrame(frame) {
     areaField: frame.areaField,
     // The area's display name, where the server sends one; areaTag stays its key.
     areaName: typeof frame.areaName === "string" && frame.areaName ? frame.areaName : undefined,
-    // mudstd.room's explicit exits ([{ dir, toKey }]); absent on room.info.
-    exits: Array.isArray(frame.exits) ? frame.exits : undefined,
+    // mudstd.room's explicit exits ([{ dir, toKey? }]); absent on room.info.
+    // A room with none may arrive as an empty Lua table, {}: that's no exits.
+    exits: validExits(frame.exits),
     // Server-sent grid position ({ x, y, z }), already normalized by the
     // adapter; re-checked here so a malformed one can't place a room at NaN.
     coords: validCoords(frame.coords),
@@ -41,6 +42,12 @@ function validLinks(list) {
       if (nonEmpty(l.cmd)) out.cmd = l.cmd;
       return out;
     });
+}
+
+function validExits(list) {
+  if (Array.isArray(list)) return list;
+  if (list && typeof list === "object" && Object.keys(list).length === 0) return [];
+  return undefined;
 }
 
 function nonEmpty(v) {

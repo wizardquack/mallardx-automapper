@@ -43,7 +43,11 @@ check("exits IN toKey", ex[2].toKey, "1/1/99")
 check("exits third dir", ex[3].dir, "n")
 check("exits keeps out", ex[4].dir, "out")
 check("exits fifth dir", ex[5].dir, "u")
-check("exits drops missing id", #movement.exits({ W = { inverse = "E" } }), 0)
+-- An exit with no id is still a way out that way: kept, with no toKey.
+local keyless = movement.exits({ W = { inverse = "E" } })
+check("exits keeps missing id", #keyless, 1)
+check("exits keyless dir", keyless[1].dir, "w")
+check("exits keyless toKey", keyless[1].toKey, nil)
 check("exits non-table", #movement.exits(nil), 0)
 
 -- An exit's area (mudstd extension), where it leads out of the room's.

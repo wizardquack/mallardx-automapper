@@ -161,3 +161,13 @@ describe("importChart", () => {
     expect(room.charted).toBeUndefined();
   });
 });
+
+describe("importChart drops exits a room doesn't list", () => {
+  it("drops an edge a charted room's report leaves out", () => {
+    const m = createMap();
+    resolveRoomSeen(m, zone("S"), null);
+    const o = resolveRoomSeen(m, zone("O"), "se").room;   // O —nw→ S made up
+    importChart(m, [zone("O", { exits: [{ dir: "n", toKey: "G" }] })]);
+    expect(o.exits.nw).toBeUndefined();
+  });
+});

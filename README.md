@@ -15,6 +15,11 @@ richer frame.
 
 - **`exits`** — each exit carries the neighbour's id, so the mapper links rooms
   and closes loops without walking every corridor. `IN` and `OUT` are kept.
+  The list is taken as the room's whole set of exits (0.11.0): walking in by
+  one direction doesn't add a way back the room doesn't list, so a one-way
+  exit (a drop you can't climb back up) is drawn with an arrow into the room
+  it leads to, or onto the card naming it when that room is on another floor, and an edge a room no longer lists is dropped. An exit listed
+  with no id still counts as a way out that way. Exits you add by hand stay.
 - **Direction inference.** The mapper places a new room by the direction you
   moved. A typed compass word (`n`, `southwest`, `up`, `in`…) is used as-is;
   without one — a game's own direction words, a clicked link, a multi-step

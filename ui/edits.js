@@ -62,7 +62,7 @@ export function mergeRooms(map, sourceId, targetId) {
 
   // Union exits — target keeps any dir it already has.
   for (const dir of Object.keys(src.exits)) {
-    if (!tgt.exits[dir]) tgt.exits[dir] = { to: src.exits[dir].to };
+    if (!tgt.exits[dir]) tgt.exits[dir] = { ...src.exits[dir] };
   }
   // Repoint inbound edges from source to target.
   for (const id of Object.keys(map.rooms)) {
@@ -93,10 +93,12 @@ export function addExit(map, fromId, dir, toId, opts = {}) {
   const to = map.rooms[toId];
   if (!from || !to || !dir) return false;
   const bidirectional = opts.bidirectional !== false; // default true
-  from.exits[dir] = { to: toId };
+  // Marked `manual`: the user's, so a server's exit list never drops it
+  // (identity.js dropUnlistedExits).
+  from.exits[dir] = { to: toId, manual: true };
   if (bidirectional) {
     const back = reverse(dir);
-    if (back) to.exits[back] = { to: fromId };
+    if (back) to.exits[back] = { to: fromId, manual: true };
   }
   return true;
 }
@@ -118,7 +120,7 @@ export function setOneWay(map, fromId, dir, oneWay) {
   if (oneWay) {
     if (to.exits[back] && to.exits[back].to === fromId) delete to.exits[back];
   } else {
-    to.exits[back] = { to: fromId };
+    to.exits[back] = { to: fromId, manual: true };
   }
   return true;
 }

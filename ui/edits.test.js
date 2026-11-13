@@ -332,3 +332,14 @@ describe("moveRooms", () => {
     expect(editEach(m, ids, (mm, id) => setRoomColor(mm, id, "#112233"))).toBe(false);
   });
 });
+
+describe("hand-made exits", () => {
+  it("are marked manual, both ways", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "A", name: "A", coords: { x: 0, y: 0, z: 0 } });
+    const b = addRoom(m, { key: "B", name: "B", coords: { x: 1, y: 0, z: 0 } });
+    addExit(m, a.id, "e", b.id);
+    expect(a.exits.e).toEqual({ to: b.id, manual: true });
+    expect(b.exits.w).toEqual({ to: a.id, manual: true });
+  });
+});

@@ -29,17 +29,19 @@ end
 -- Normalize a GMCP exits table (mudstd.room: { DIR = { id = "..", inverse = ".." } })
 -- into a deterministic list of { dir = <canonical>, toKey = <target id string> }.
 -- Only exits whose direction maps to one of the 10 compass dirs or in/out (so
--- it has a known reverse) and that carry a target id are kept; custom strings
--- are dropped. Sorted by dir for a stable order (Lua `pairs` iteration order
--- is undefined).
+-- it has a known reverse) are kept; custom strings are dropped. One with no
+-- target id is kept without a toKey: the room still has a way out that way,
+-- which the map needs to know to tell a one-way exit from a two-way one.
+-- Sorted by dir for a stable order (Lua `pairs` iteration order is undefined).
 function M.exits(exits)
   local out = {}
   if type(exits) ~= "table" then return out end
   for dir, ex in pairs(exits) do
     local canon = M.normalize(dir)
     local to_key = type(ex) == "table" and ex.id or nil
-    if canon and to_key ~= nil then
-      local e = { dir = canon, toKey = tostring(to_key) }
+    if canon then
+      local e = { dir = canon }
+      if to_key ~= nil then e.toKey = tostring(to_key) end
       -- Where the exit leads out of the room's area (mudstd extension): that
       -- area's key and name, so a card can say where it goes before it's taken.
       if ex.area ~= nil and (type(ex.area) == "string" or type(ex.area) == "number") then

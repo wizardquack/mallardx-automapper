@@ -421,3 +421,84 @@ describe("resolveRoomSeen — the server's links", () => {
     expect(b.links).toEqual({ [a.id]: { name: "Lift 12", server: true } });
   });
 });
+
+// A way that doesn't lead back the way it came: the summit's scree only goes
+// down, and the room at its foot has no exit back up.
+describe("one-way exits", () => {
+  const summit = { key: "S", name: "Summit", exits: [{ dir: "ne", toKey: "G" }, { dir: "se", toKey: "O" }] };
+  const shaft = (exits) => ({ key: "O", name: "Old Shaft", exits });
+
+  it("makes up no way back that the room arrived in doesn't list", () => {
+    const m = createMap();
+    resolveRoomSeen(m, summit, null);
+    const o = resolveRoomSeen(m, shaft([{ dir: "n", toKey: "G" }, { dir: "s", toKey: "K" }]), "se").room;
+    expect(getRoomByKey(m, "S").exits.se).toEqual({ to: o.id });
+    expect(o.exits.nw).toBeUndefined();
+  });
+
+  it("makes up the way back where the room lists it with no key", () => {
+    const m = createMap();
+    const s = resolveRoomSeen(m, summit, null).room;
+    const o = resolveRoomSeen(m, shaft([{ dir: "nw" }]), "se").room;
+    expect(o.exits.nw).toEqual({ to: s.id });
+    expect(o.exitDirs).toEqual(["nw"]);
+  });
+
+  it("links a way back listed by key to where it really leads", () => {
+    const m = createMap();
+    const c = resolveRoomSeen(m, { key: "C", name: "Crag" }, null).room;
+    resolveRoomSeen(m, summit, null);
+    const o = resolveRoomSeen(m, shaft([{ dir: "nw", toKey: "C" }]), "se").room;
+    expect(o.exits.nw).toEqual({ to: c.id });
+  });
+
+  it("still makes up the way back where the server sends no exit list", () => {
+    const m = createMap();
+    const s = resolveRoomSeen(m, { key: "S", name: "Summit" }, null).room;
+    const o = resolveRoomSeen(m, { key: "O", name: "Old Shaft" }, "se").room;
+    expect(o.exits.nw).toEqual({ to: s.id });
+  });
+});
+
+describe("dropping exits a room doesn't list", () => {
+  function walked() {
+    const m = createMap();
+    const s = resolveRoomSeen(m, { key: "S", name: "Summit" }, null).room;
+    const o = resolveRoomSeen(m, { key: "O", name: "Old Shaft" }, "se").room;
+    return { m, s, o };   // O —nw→ S made up, as an older save has it
+  }
+
+  it("drops an edge the room's report doesn't list", () => {
+    const { m, o } = walked();
+    resolveRoomSeen(m, { key: "O", name: "Old Shaft", exits: [{ dir: "n", toKey: "G" }] }, null);
+    expect(o.exits.nw).toBeUndefined();
+  });
+
+  it("drops an edge the room lists as leading somewhere else", () => {
+    const { m, o } = walked();
+    resolveRoomSeen(m, { key: "O", name: "Old Shaft", exits: [{ dir: "nw", toKey: "ELSE" }] }, null);
+    expect(o.exits.nw).toBeUndefined();
+  });
+
+  it("keeps an edge listed with no key, or by its own target's key", () => {
+    const a = walked();
+    resolveRoomSeen(a.m, { key: "O", name: "Old Shaft", exits: [{ dir: "nw" }] }, null);
+    expect(a.o.exits.nw).toEqual({ to: a.s.id });
+    const b = walked();
+    resolveRoomSeen(b.m, { key: "O", name: "Old Shaft", exits: [{ dir: "nw", toKey: "S" }] }, null);
+    expect(b.o.exits.nw).toEqual({ to: b.s.id });
+  });
+
+  it("keeps the user's own exits", () => {
+    const { m, o, s } = walked();
+    o.exits.nw = { to: s.id, manual: true };
+    resolveRoomSeen(m, { key: "O", name: "Old Shaft", exits: [] }, null);
+    expect(o.exits.nw).toEqual({ to: s.id, manual: true });
+  });
+
+  it("leaves the edges alone where the server sends no exit list", () => {
+    const { m, o, s } = walked();
+    resolveRoomSeen(m, { key: "O", name: "Old Shaft" }, null);
+    expect(o.exits.nw).toEqual({ to: s.id });
+  });
+});

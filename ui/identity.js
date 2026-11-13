@@ -42,8 +42,9 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
     if (seen.coords) placeAtServerCoords(map, existing, seen.coords, seen.wrap);
     // Record the traversed edge even when the destination already exists —
     // backtracks and loop-closing hops are the only chance to capture it.
-    linkTraversal(map, prev, existing, dir, !inferred);
+    linkTraversal(map, prev, existing, dir, !inferred, seen.exits);
     recordExitKeys(existing, seen.exits);
+    dropUnlistedExits(map, existing, seen.exits);
     linkKnownExits(map, existing, seen.exits);
     applyServerLinks(map, existing, seen.links, (k) => getRoomByKey(map, k));
     linkLinksInto(map, existing);
@@ -68,7 +69,7 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
   const room = addRoom(map, { key: seen.key, name: seen.name, env: seen.env, coords, areaId });
   refreshAnnotations(map, room, seen);
   if (seen.coords) placeAtServerCoords(map, room, seen.coords, seen.wrap);
-  linkTraversal(map, prev, room, dir, !inferred);
+  linkTraversal(map, prev, room, dir, !inferred, seen.exits);
   recordExitKeys(room, seen.exits);
   linkKnownExits(map, room, seen.exits);
   linkExitKeysInto(map, room);
@@ -169,6 +170,8 @@ function inferDirection(map, prev, key) {
 // of it can be matched to the exit taken even when its target wasn't yet on
 // the map. Replaced wholesale on each report; frames without an exits list
 // (room.info) leave it alone.
+// Every direction it listed, with a key or without, goes in `exitDirs`, so the
+// map knows it has a way out there (render.js draws one not taken yet).
 // The exits that say they lead out of the room's area (mudstd extension
 // `area`, `areaName` on an exit) are remembered too, so a card can name where
 // they go before anyone's taken them (render.js).
@@ -176,6 +179,7 @@ export function recordExitKeys(room, exits) {
   if (!Array.isArray(exits)) return;
   const byDir = {};
   const areas = {};
+  room.exitDirs = [...listedExits(exits).keys()];
   for (const ex of exits) {
     if (!ex || !isDirection(ex.dir) || ex.toKey == null) continue;
     byDir[ex.dir] = String(ex.toKey);
@@ -186,6 +190,40 @@ export function recordExitKeys(room, exits) {
   room.exitKeys = byDir;
   if (Object.keys(areas).length) room.exitAreas = areas;
   else delete room.exitAreas;
+}
+
+// A reported exit list as a Map of dir → target key (null where the exit
+// carries none), for the directions the map knows.
+function listedExits(exits) {
+  const out = new Map();
+  for (const ex of exits || []) {
+    if (ex && isDirection(ex.dir)) out.set(ex.dir, ex.toKey == null ? null : String(ex.toKey));
+  }
+  return out;
+}
+
+// A room that reports its exits says what they are: an edge of the map's that
+// it doesn't list, or that it lists as leading somewhere else, isn't one. Such
+// edges came from a guess (a reverse made up for a one-way exit, a move put
+// down to the wrong direction) or from a room that has changed. Exits the user
+// added by hand (`manual`) are theirs and stay. Frames without an exits list
+// (room.info) leave the room's edges alone.
+export function dropUnlistedExits(map, room, exits) {
+  if (!Array.isArray(exits)) return false;
+  const listed = listedExits(exits);
+  let dropped = false;
+  for (const dir of Object.keys(room.exits)) {
+    const ex = room.exits[dir];
+    if (!isDirection(dir) || ex.manual) continue;
+    const key = listed.get(dir);
+    const target = ex.to != null ? map.rooms[ex.to] : null;
+    const elsewhere = key != null && target && target.key != null && target.key !== key;
+    if (key === undefined || elsewhere) {
+      delete room.exits[dir];
+      dropped = true;
+    }
+  }
+  return dropped;
 }
 
 // Rooms that already reported an exit to `room` by key (before it was on the
@@ -322,11 +360,17 @@ export function firstFreeCell(map, areaId) {
 // different area views. `withReverse` false links only the forward edge: an
 // inferred move knows the exit taken, but not that it leads back, and the
 // room's own reported exits supply the real reverse.
-function linkTraversal(map, prev, room, pendingDir, withReverse = true) {
+// Where the room arrived in reports its exits (`exits`), the reverse is only
+// guessed for a way back it lists with no key: one it doesn't list isn't there
+// (a one-way exit, a drop you can't climb back up), and one it lists by key is
+// linked to wherever it really leads (linkKnownExits).
+function linkTraversal(map, prev, room, pendingDir, withReverse = true, exits) {
   if (!prev || prev.id === room.id) return;
   if (!pendingDir || !isDirection(pendingDir)) return;
   linkExit(map, prev.id, pendingDir, room.id);
   if (!withReverse) return;
   const back = reverse(pendingDir);
-  if (back) linkExit(map, room.id, back, prev.id);
+  if (!back) return;
+  if (Array.isArray(exits) && listedExits(exits).get(back) !== null) return;
+  linkExit(map, room.id, back, prev.id);
 }

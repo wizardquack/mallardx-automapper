@@ -45,9 +45,10 @@ describe("move queue", () => {
 describe("contradicts", () => {
   function line() {
     const m = createMap();
-    resolveRoomSeen(m, { key: "A", name: "A", exits: [{ dir: "s", toKey: "Z" }] }, null);
+    const exits = [{ dir: "n", toKey: "B" }, { dir: "s", toKey: "Z" }];
+    resolveRoomSeen(m, { key: "A", name: "A", exits }, null);
     resolveRoomSeen(m, { key: "B", name: "B" }, "n");
-    resolveRoomSeen(m, { key: "A", name: "A", exits: [{ dir: "s", toKey: "Z" }] }, "s");
+    resolveRoomSeen(m, { key: "A", name: "A", exits }, "s");
     return m;   // at A; A —n→ B walked, A —s→ Z reported
   }
 

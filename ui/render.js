@@ -92,7 +92,9 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       const onPath = pathEdges ? pathEdges.has(key) : false;
       const step = wrapStep(a, b);
       if (step == null) {
-        exits.push({ x1: a.px, y1: a.py, x2: b.px, y2: b.py, dir1: dir, dir2: back, onPath });
+        // With no way back at all it's one way, drawn with an arrow into `to`.
+        const oneWay = !back && !leadsTo(map.rooms[to], id);
+        exits.push({ x1: a.px, y1: a.py, x2: b.px, y2: b.py, dir1: dir, dir2: back, onPath, oneWay });
       } else {
         // Across the far side of a ring from the view's centre: each end runs
         // off the edge toward where the other comes round, not across the map.
@@ -125,6 +127,7 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       }
       stubs.push({
         px: p.px, py: p.py, dir, from: r.id, unexplored: false,
+        oneWay: !leadsTo(target, r.id),
         ...elsewhere(map, r, target),
       });
     }
@@ -162,6 +165,14 @@ function backDir(room, toId, dir) {
     if (isCompass(d) && room.exits[d].to === toId) return d;
   }
   return null;
+}
+
+// Whether `room` has any way to `toId`: an exit by any direction (up, down,
+// in, out as well as across the floor) or a link.
+function leadsTo(room, toId) {
+  if (!room) return false;
+  if (Object.values(room.exits).some((ex) => ex && ex.to === toId)) return true;
+  return !!(room.links && room.links[toId]);
 }
 
 // Every direction a room has a way out by: its exits on the map, and the ones
@@ -219,6 +230,48 @@ export function exitGeometry(e, half) {
     b,
     end: { x: p2.x, y: p2.y },
   };
+}
+
+// The arrowhead on a one-way exit's line, where it meets the room it leads
+// into, pointing the way the line runs there: { tip, left, right }. Sized to
+// the room, within a few px either way so it reads at any zoom.
+export function oneWayArrow(g, half) {
+  // The way in: along the last straight run, or the curve's end where that's
+  // too short to have a direction.
+  let from = g.b;
+  if (Math.hypot(g.end.x - from.x, g.end.y - from.y) < 1e-6) from = g.c2;
+  if (Math.hypot(g.end.x - from.x, g.end.y - from.y) < 1e-6) from = g.start;
+  return arrowAt(from, g.end, arrowSize(half));
+}
+
+function arrowSize(half) {
+  return Math.max(4, Math.min(8, half * 0.6));
+}
+
+// An arrowhead with its tip at `tip`, pointing the way from `from` to it, no
+// longer than the way between them.
+export function arrowAt(from, tip, size) {
+  const dx = tip.x - from.x, dy = tip.y - from.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len, uy = dy / len;
+  const sz = Math.min(size, len);
+  const bx = tip.x - ux * sz, by = tip.y - uy * sz;
+  const w = sz * 0.6;
+  return {
+    tip: { x: tip.x, y: tip.y },
+    left: { x: bx - uy * w, y: by + ux * w },
+    right: { x: bx + uy * w, y: by - ux * w },
+  };
+}
+
+function drawArrowhead(ctx, a, color) {
+  ctx.beginPath();
+  ctx.moveTo(a.tip.x, a.tip.y);
+  ctx.lineTo(a.left.x, a.left.y);
+  ctx.lineTo(a.right.x, a.right.y);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
 }
 
 // The ids of the laid-out rooms whose squares meet the box between two
@@ -381,6 +434,7 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
     // A way across a ring's seam is dashed: it goes on round, out of view.
     if (ctx.setLineDash) ctx.setLineDash(e.seam ? [4, 3] : []);
     ctx.stroke();
+    if (e.oneWay) drawArrowhead(ctx, oneWayArrow(g, half), ctx.strokeStyle);
   }
   if (ctx.setLineDash) ctx.setLineDash([]);
   // Stubs: a way not taken yet fades out in its own colour, a path running
@@ -399,7 +453,7 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
     if (!p) continue;
     const card = placed.get(s);
     if (card) {
-      cards.push(drawCard(ctx, s, p, card, scale, c));
+      cards.push(drawCard(ctx, s, p, card, scale, c, half));
       continue;
     }
     // A fading stub runs a room's width, so enough of it shows before it's gone.
@@ -411,6 +465,7 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
     ctx.strokeStyle = s.unexplored ? fadeOut(ctx, p.x, p.y, ex, ey, c.unexplored) : c.exit;
     ctx.lineWidth = 2;
     ctx.stroke();
+    if (s.oneWay) drawArrowhead(ctx, arrowAt(p, { x: ex, y: ey }, arrowSize(half)), c.exit);
   }
   ctx.lineCap = "butt";
   for (const r of layout.rooms) {
@@ -689,7 +744,7 @@ function sampleCurve(a, c1, c2, b) {
 // A stub's line out to its card, and the card: a rounded box naming where
 // the exit goes. Returns its box, where it leads, and the full name, for
 // clicks and the hover card.
-function drawCard(ctx, s, p, card, scale, c) {
+function drawCard(ctx, s, p, card, scale, c, half) {
   const { box, text, ax, ay } = card;
   ctx.beginPath();
   ctx.moveTo(p.x, p.y);
@@ -697,6 +752,8 @@ function drawCard(ctx, s, p, card, scale, c) {
   ctx.strokeStyle = c.exit;
   ctx.lineWidth = 2;
   ctx.stroke();
+  // One way: an arrow where the stub meets the card, the way it goes.
+  if (s.oneWay) drawArrowhead(ctx, arrowAt(p, { x: ax, y: ay }, arrowSize(half)), c.exit);
   ctx.beginPath();
   roundRect(ctx, box.l, box.t, box.r - box.l, box.b - box.t, 4);
   ctx.fillStyle = c.halo;

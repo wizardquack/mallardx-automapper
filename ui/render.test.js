@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { createMap, addRoom, linkExit, setCurrent, addArea } from "./graph.js";
-import { computeLayout, envColor, draw, fitText, glyphOrigin, roomsInRect, exitPort, clearOf, exitGeometry, cardAt, NAME_LABEL_MIN_SCALE } from "./render.js";
+import { computeLayout, envColor, draw, fitText, glyphOrigin, roomsInRect, exitPort, clearOf, exitGeometry, oneWayArrow, cardAt, NAME_LABEL_MIN_SCALE } from "./render.js";
 import { setTerrains } from "./graph.js";
+import { addLink } from "./links.js";
 
 function sampleMap() {
   const m = createMap();
@@ -33,7 +34,7 @@ describe("computeLayout", () => {
   it("emits an exit segment between linked same-level rooms", () => {
     const { m } = sampleMap();
     const layout = computeLayout(m, { cx: 100, cy: 100, scale: 40 });
-    expect(layout.exits).toContainEqual({ x1: 100, y1: 100, x2: 100, y2: 60, dir1: "n", dir2: null, onPath: false });
+    expect(layout.exits).toContainEqual({ x1: 100, y1: 100, x2: 100, y2: 60, dir1: "n", dir2: null, onPath: false, oneWay: true });
   });
 
   it("draws no segment for an in/out exit (routable, not drawn)", () => {
@@ -438,7 +439,7 @@ describe("exit stubs", () => {
     setCurrent(m, a.id);
     const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
     expect(L.stubs).toEqual([{
-      px: 0, py: 0, dir: "e", from: a.id, unexplored: false,
+      px: 0, py: 0, dir: "e", from: a.id, unexplored: false, oneWay: true,
       to: far.id, kind: "area", label: "F",
     }]);
   });
@@ -675,5 +676,92 @@ describe("cards on stubs to another area or floor", () => {
     const room = ctx.calls.findIndex((c) => c[0] === "fillRect");
     expect(card).toBeGreaterThanOrEqual(0);
     expect(card).toBeLessThan(room);
+  });
+});
+
+describe("one-way exits", () => {
+  function pair() {
+    const m = createMap();
+    const a = addRoom(m, { key: "A", name: "A", coords: { x: 0, y: 0, z: 0 } });
+    const b = addRoom(m, { key: "B", name: "B", coords: { x: 1, y: 1, z: 0 } });
+    linkExit(m, a.id, "se", b.id);
+    setCurrent(m, a.id);
+    return { m, a, b };
+  }
+  const only = (m) => computeLayout(m, { cx: 0, cy: 0, scale: 10 }).exits;
+
+  it("marks a line with no way back as one way", () => {
+    expect(only(pair().m)[0].oneWay).toBe(true);
+  });
+
+  it("isn't one way with an exit back, by any direction, or a link", () => {
+    const back = pair();
+    linkExit(back.m, back.b.id, "nw", back.a.id);
+    expect(only(back.m)[0].oneWay).toBe(false);
+    const out = pair();
+    linkExit(out.m, out.b.id, "out", out.a.id);
+    expect(only(out.m)[0].oneWay).toBe(false);
+    const link = pair();
+    addLink(link.m, link.b.id, link.a.id, { oneWay: true });
+    expect(only(link.m)[0].oneWay).toBe(false);
+  });
+
+  it("draws an arrowhead at the end it leads into, pointing in", () => {
+    const g = exitGeometry({ x1: 0, y1: 0, x2: 0, y2: 100, dir1: "s", dir2: null }, 10);
+    const a = oneWayArrow(g, 10);
+    expect(a.tip).toEqual(g.end);
+    // Its base is back up the line, either side of it.
+    expect(a.left.y).toBeLessThan(a.tip.y);
+    expect(a.right.y).toBeLessThan(a.tip.y);
+    expect(a.left.x).toBeCloseTo(-a.right.x);
+  });
+
+  it("is filled when drawn", () => {
+    const { m } = pair();
+    const calls = [];
+    const ctx = {
+      fillRect: () => {}, strokeRect: () => {}, beginPath: () => {}, moveTo: () => {}, lineTo: () => {},
+      stroke: () => {}, bezierCurveTo: () => {}, closePath: () => {}, arc: () => {}, strokeText: () => {},
+      fill: () => calls.push(["fill", ctx.fillStyle]), fillText: () => {}, measureText: (t) => ({ width: t.length * 6 }),
+    };
+    draw(ctx, computeLayout(m, { cx: 0, cy: 0, scale: 40 }), { roomSize: 20, labels: false });
+    expect(calls).toContainEqual(["fill", "#6b7280"]);
+  });
+});
+
+describe("one-way stubs to another floor", () => {
+  function floors() {
+    const m = createMap();
+    const top = addRoom(m, { key: "S", name: "Summit", coords: { x: 0, y: 0, z: 1 } });
+    const low = addRoom(m, { key: "O", name: "Old Shaft", coords: { x: 1, y: 1, z: 0 } });
+    linkExit(m, top.id, "se", low.id);
+    setCurrent(m, top.id);
+    return { m, top, low };
+  }
+  const stub = (m) => computeLayout(m, { cx: 0, cy: 0, scale: 40 }).stubs[0];
+
+  it("marks a stub with no way back as one way", () => {
+    expect(stub(floors().m).oneWay).toBe(true);
+  });
+
+  it("isn't one way where the room below leads back", () => {
+    const { m, top, low } = floors();
+    linkExit(m, low.id, "nw", top.id);
+    expect(stub(m).oneWay).toBe(false);
+  });
+
+  it("draws the arrowhead, card or no card", () => {
+    for (const labels of [true, false]) {
+      const { m } = floors();
+      const calls = [];
+      const ctx = {
+        fillRect: () => {}, strokeRect: () => {}, beginPath: () => {}, moveTo: () => {}, lineTo: () => {},
+        stroke: () => {}, bezierCurveTo: () => {}, closePath: () => {}, arc: () => {}, strokeText: () => {},
+        roundRect: () => {}, fill: () => calls.push(["fill", ctx.fillStyle]), fillText: () => {},
+        measureText: (t) => ({ width: t.length * 6, actualBoundingBoxAscent: 8, actualBoundingBoxDescent: 2 }),
+      };
+      draw(ctx, computeLayout(m, { cx: 200, cy: 200, scale: 40 }), { roomSize: 20, labels });
+      expect(calls).toContainEqual(["fill", "#6b7280"]);
+    }
   });
 });

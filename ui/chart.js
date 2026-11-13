@@ -9,7 +9,8 @@ import { vector, isCompass, isDirection } from "./directions.js";
 import { resolveArea, refreshAreaName } from "./area.js";
 import { applyServerLinks, linkLinksInto } from "./links.js";
 import {
-  refreshAnnotations, placeAtServerCoords, recordExitKeys, linkKnownExits, linkExitKeysInto, firstFreeCell,
+  refreshAnnotations, placeAtServerCoords, recordExitKeys, dropUnlistedExits, linkKnownExits, linkExitKeysInto,
+  firstFreeCell,
 } from "./identity.js";
 
 // Where a room waits until it's placed: NaN matches no cell, so it neither
@@ -58,6 +59,7 @@ export function importChart(map, rooms, cfg) {
   // 2. Edges, once every room exists, so the chart's order doesn't matter.
   const byKey = (k) => getRoomByKey(map, k);
   for (const { room, seen } of entries) {
+    dropUnlistedExits(map, room, seen.exits);
     linkKnownExits(map, room, seen.exits);
     applyServerLinks(map, room, seen.links, byKey, { additive: true });
   }
