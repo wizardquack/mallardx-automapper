@@ -217,4 +217,71 @@ function M.chart(data)
   }
 end
 
+-- ── mudstd.relief.patch ─────────────────────────────────────────────────────
+-- A rectangle of an area's ground grid (docs/relief-spec.md). Checked for
+-- shape and size here; the panel decodes the base64 (ui/relief.js).
+M.RELIEF_MAX = 64
+
+-- How many bytes a base64 string decodes to, or nil if it isn't base64.
+function M.b64_len(s)
+  if type(s) ~= "string" or not s:match("^[A-Za-z0-9+/]*=?=?$") then return nil end
+  local m = #(s:gsub("=", ""))
+  if m % 4 == 1 then return nil end
+  if s:find("=") and #s % 4 ~= 0 then return nil end
+  return math.floor(m * 3 / 4)
+end
+
+local function int_in(v, lo, hi)
+  return finite(v) and v == math.floor(v) and v >= lo and v <= hi
+end
+
+-- `n` values sent as base64 of `width`-byte values (passed through when the
+-- length is right) or as a JSON array (rebuilt as n numbers, anything not a
+-- whole number in lo..hi becoming `unknown`: JSON null may arrive as a hole
+-- or a sentinel). Nil when malformed.
+local function relief_values(v, n, width, lo, hi, unknown)
+  if type(v) == "string" then
+    if M.b64_len(v) ~= n * width then return nil end
+    return v
+  end
+  if type(v) ~= "table" then return nil end
+  if v[n + 1] ~= nil then return nil end
+  local out = {}
+  for k = 1, n do
+    local x = v[k]
+    out[k] = int_in(x, lo, hi) and x or unknown
+  end
+  return out
+end
+
+-- -> { area, z, cell, x, y, cols, rows, height, ground = { ids, data }? },
+-- or nil. A malformed ground is dropped and the heights kept.
+function M.relief_patch(data)
+  if type(data) ~= "table" then return nil end
+  local area = str(data.area)
+  if not area then return nil end
+  local z = data.z
+  if z == nil or type(z) == "userdata" then z = 0 end   -- absent or JSON null
+  if not int_in(z, -1e9, 1e9) then return nil end
+  local cell, x, y = data.cell, data.x, data.y
+  if not (finite(cell) and cell > 0 and finite(x) and finite(y)) then return nil end
+  local cols, rows = data.cols, data.rows
+  if not (int_in(cols, 1, M.RELIEF_MAX) and int_in(rows, 1, M.RELIEF_MAX)) then return nil end
+  local n = cols * rows
+  local height = relief_values(data.height, n, 2, -32767, 32767, -32768)
+  if not height then return nil end
+  local patch = { area = area, z = z, cell = cell, x = x, y = y, cols = cols, rows = rows, height = height }
+  local g = data.ground
+  if type(g) == "table" and type(g.ids) == "table" then
+    local ids = {}
+    for k, id in ipairs(g.ids) do
+      if k > 255 then break end
+      ids[k] = str(id) or ""
+    end
+    local gd = relief_values(g.data, n, 1, 0, 254, 255)
+    if gd and #ids > 0 then patch.ground = { ids = ids, data = gd } end
+  end
+  return patch
+end
+
 return M

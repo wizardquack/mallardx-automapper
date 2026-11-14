@@ -14,6 +14,8 @@ local last_room = nil  -- replayed to the iframe on (re)mount
 local last_terrains = nil  -- likewise the last mudstd.room.terrain list
 local last_tags = nil  -- and the last mudstd.room.tags list
 local charts = {}  -- this session's mudstd.map.rooms, replayed on (re)mount
+local reliefs = {}  -- and this session's mudstd.relief.patch messages
+local RELIEF_KEEP = 600  -- at most this many kept for replay (oldest dropped)
 local learn_handle = nil  -- catch-all trigger handle while '/map learn' is on
 
 -- room.info → normalized room_seen. `identifier` is the stable room key.
@@ -61,12 +63,26 @@ gmcp.on("mudstd.map.rooms", function(_pkg, data)
   panel:post("room_chart", chart)
 end)
 
+-- mudstd.relief.patch: a rectangle of an area's ground grid (heights and
+-- ground terrain), drawn behind the map. The panel merges it into the saved
+-- map, so it persists like a chart; it's also kept for the session and
+-- replayed on (re)mount, so the refill a server sends at login isn't lost
+-- before the panel is up. Merging is idempotent, so a replay is harmless.
+gmcp.on("mudstd.relief.patch", function(_pkg, data)
+  local patch = roomframe.relief_patch(data)
+  if not patch then return end
+  reliefs[#reliefs + 1] = patch
+  if #reliefs > RELIEF_KEEP then table.remove(reliefs, 1) end
+  panel:post("relief_patch", patch)
+end)
+
 -- A new session may be a different server: forget that the last one sent
 -- mudstd.room.info. (Also fires on plugin reload; a fresh load starts clear.)
 -- The panel hears of it too: where you log in is no move to offer a link for.
 world.on("connect", function()
   roomsource.reset()
   charts = {}
+  reliefs = {}
   panel:post("connected", {})
 end)
 
@@ -198,6 +214,7 @@ panel:on_message("ready", function()
   if last_terrains then panel:post("terrains", { list = last_terrains }) end
   if last_tags then panel:post("tag_defs", { list = last_tags }) end
   for _, chart in ipairs(charts) do panel:post("room_chart", chart) end
+  for _, patch in ipairs(reliefs) do panel:post("relief_patch", patch) end
   if last_room then panel:post("room_seen", last_room) end
 end)
 
