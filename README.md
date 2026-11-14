@@ -58,7 +58,14 @@ richer frame.
   own tags' names and glyphs with `mudstd.room.tags` (below).
 - **`region`** / **`regionName`** (extension) — the part of the area the room
   is in (a district, a quarter) and what to call it: drawn as a tint behind
-  its rooms, with its name over them.
+  its rooms, with its name over them. Since 0.12.1 the tint is one joined
+  patch per region: under each room and along each exit between two of its
+  rooms, filled once so overlaps don't darken. On a grid (every room at
+  whole-number coords) that's the room's whole cell, so a district is a
+  solid block and a diagonal or two-cell exit is bridged a cell wide; off a
+  grid (land placed by km) it's a disc per room joined by a band along each
+  exit. Rooms of a region with no exit between them and not touching stay
+  separate pieces, each with its own label.
 - **`regionColor`** (extension, 0.12.0) — beside `region`, the region's
   colour, `"#rrggbb"` or `"rrggbb"`: its tint (at the same faintness as
   ever) and its legend swatch. Kept with the area's regions, the latest
