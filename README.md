@@ -54,10 +54,46 @@ richer frame.
   the map.
 - **`tags`** (extension) — what's in the room, as a list of words (`market`,
   `bank`, `lift`, `charger`…). Well-known ones get a glyph; all show on hover.
-  IRE's `room.info` `details` are read the same way.
+  IRE's `room.info` `details` are read the same way. A game can define its
+  own tags' names and glyphs with `mudstd.room.tags` (below).
 - **`region`** / **`regionName`** (extension) — the part of the area the room
   is in (a district, a quarter) and what to call it: drawn as a tint behind
   its rooms, with its name over them.
+- **`regionColor`** (extension, 0.12.0) — beside `region`, the region's
+  colour, `"#rrggbb"` or `"rrggbb"`: its tint (at the same faintness as
+  ever) and its legend swatch. Kept with the area's regions, the latest
+  sent winning. Without one, the colour is hashed from the region's key.
+- **`elevation`** (extension, 0.12.0) — metres above the world's datum; may
+  be negative or fractional. It isn't a floor (`coords.z` is). The hover
+  card shows it ("Elevation 412 m") and rooms are shaded by it (see
+  **Height shading**).
+- **`lat`** / **`lon`** (extension, 0.12.0) — degrees north and east,
+  shown on hover as "34.12°N 5.40°W".
+- **An exit's `style`** (extension, 0.12.0) — how the way is drawn:
+  `"N": { "id": "x", "style": "road" }`. One of `road` (a thicker line),
+  `path` (the plain line, and the default), `trail` (thin, faint, dotted) or
+  `climb` (crossed by ticks: hard going). A missing or unknown style is a
+  path. A line is drawn once between two rooms; where its two ends' styles
+  differ, the stronger shows: climb, then road, then trail, then path. The
+  legend's **Ways** section shows the styles in view.
+
+### `mudstd.room.tags` (0.12.0)
+
+A game's own tags, sent once per session before the first room frame (like
+`mudstd.room.terrain`), in the `mudstd.room` package the mapper already
+advertises:
+
+```json
+mudstd.room.tags [ { "id": "smithy", "label": "Smithy", "glyph": "S" },
+                   { "id": "shrine", "label": "Wayshrine", "glyph": "Ω" } ]
+```
+
+The mapper keeps them with the map. `glyph` is one or two characters; any
+other value, or a character that would be drawn as a colour emoji (`⚓`,
+`🏠`), counts as no glyph, so pick text symbols. A room's glyph is the
+user's symbol, else the glyph of the first tag in this list (in the list's
+order) that the room has, else a built-in glyph for a well-known tag, else
+none. The legend and hover card call a tag by its `label`.
 
 - **`links`** (extension) — `[{ id, name?, cmd? }]`, ways from the room
   that aren't exits: a lift's other stops, a portal. Each becomes a link
@@ -127,6 +163,18 @@ card names the rooms above and below, and the room's right-click menu has
 
 The floor, zoom and recenter buttons float in the map's top-left corner.
 The scroll wheel or a trackpad pinch also zooms, towards the pointer.
+
+### Height shading (0.12.0)
+
+Where rooms on the floor in view have an `elevation`, each is lightened
+(higher) or darkened (lower) a little, by where it sits between the lowest
+and highest of them: about 18% toward white or black at the ends. A range
+under 100 m is treated as 100 m about its middle, so a nearly flat area is
+barely shaded. It shades every room with an elevation, your coloured ones
+too, so height reads the same everywhere; the terrain (or your colour)
+stays the main signal. The **◭** button by **Aa** turns it off and on (on
+by default, remembered); it shows only while a room in view has an
+elevation.
 
 Room names are drawn at the two largest zooms and region names from the
 middle one; **Aa** turns both off. **?** opens a legend of the terrains,
