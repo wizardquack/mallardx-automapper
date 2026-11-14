@@ -132,6 +132,61 @@ and walk to them, and the mark goes when you arrive. Your colours, symbols
 and notes are never touched. A chart part already held at the same
 `version` is skipped. Keep each part to a few hundred rooms.
 
+## Relief (`mudstd.relief`, 0.13.0)
+
+A server can send the ground under an area: heights and ground terrain on a
+grid, drawn behind the map as ground colour, hill shading and contours. The
+mapper advertises `mudstd.relief 1`; a server sends patches only to a client
+that advertised it. The full spec is `docs/relief-spec.md`.
+
+```json
+mudstd.relief.patch {
+  "area": "surface.tamsin", "z": 0, "cell": 0.5,
+  "x": 4.0, "y": 6.5, "cols": 12, "rows": 10,
+  "height": "<base64>",
+  "ground": { "ids": ["dust", "stones", "sea"], "data": "<base64>" }
+}
+```
+
+- **`area`** is the room frames' `area` key; **`z`** the floor (default 0).
+  Each area and floor has one grid in the area's own map units (rooms'
+  `coords`, north +y): cell (i, j) is centred at x = i·`cell`, y = j·`cell`.
+  A patch with another `cell` for that area and floor replaces its grid.
+- **`x`, `y`** are the centre of the patch's **north-west** cell (whole
+  multiples of `cell`); row 0 is the northernmost, rows run south, columns
+  east. At most **64×64** per patch; larger ones are dropped.
+- **`height`** is metres, row-major: base64 of little-endian int16, or a JSON
+  array of integers. **-32768** (or `null`) is unknown.
+- **`ground`** (optional): `ids` are terrain ids (as in `mudstd.room.terrain`,
+  which may define ones no room uses, such as `sea`); `data` is one uint8 per
+  cell (base64 or an array) indexing `ids`, **255** (or `null`) unknown.
+- **Merging:** known cells overwrite, unknown cells never erase. Where the
+  area's rooms say x wraps (`wrap.x`), the grid's x is kept modulo it and
+  drawn at the x nearest you, as rooms are.
+
+What to reveal is the server's call: the map draws only the cells it has been
+sent, and keeps them in the saved map (as compact base64 chunks; a few
+hundred small patches come to tens of kB). They're also replayed when the
+panel reloads, so a refill sent at login isn't lost. Deleting the last room
+of an area forgets its grids.
+
+**Drawing.** Under the region patches, rooms and exits, for the floor in
+view: each known cell's ground in its terrain colour at modest opacity, hill
+shading lit from the north-west, and thin, faint contours (every fifth a
+little stronger) at an interval picked from the heights in view (1, 2, 5,
+10, 20, 25, 50, 100, 200, 250, 500 m…, at most about ten lines). Unknown
+cells are left as background, and the edge of what's known is feathered.
+
+**Estimated relief.** Where an area has rooms with an `elevation` but no grid
+near them (within 1.5 map units), heights are estimated from those rooms,
+reaching about 1.5 units out from them and fading. Only shading and contours
+are drawn from an estimate, never ground colour.
+
+The **◭** button turns relief off and on with the room shading; it shows
+while the floor has a grid or rooms with an elevation. The **?** legend's
+Relief section gives the contour interval (and whether it's estimated), and
+the ground colours that no room terrain in view already explains.
+
 `in` and `out` are exits with no compass direction: the map stores them, and
 `/goto`, click-to-walk and the speedwalk route through them (sending `in` and
 `out`), but they don't place rooms or draw lines — the room through a hatch
@@ -180,8 +235,9 @@ under 100 m is treated as 100 m about its middle, so a nearly flat area is
 barely shaded. It shades every room with an elevation, your coloured ones
 too, so height reads the same everywhere; the terrain (or your colour)
 stays the main signal. The **◭** button by **Aa** turns it off and on (on
-by default, remembered); it shows only while a room in view has an
-elevation.
+by default, remembered), along with the ground relief (see **Relief**); it
+shows only while a room in view has an elevation or the floor has a relief
+grid.
 
 Room names are drawn at the two largest zooms and region names from the
 middle one; **Aa** turns both off. **?** opens a legend of the terrains,
