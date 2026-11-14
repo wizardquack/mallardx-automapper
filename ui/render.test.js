@@ -3,7 +3,7 @@ import { createMap, addRoom, linkExit, setCurrent, addArea } from "./graph.js";
 import { exitStroke, climbTicks } from "./render.js";
 import { shadeColor, inkOn } from "./annotate.js";
 import { setTagDefs } from "./graph.js";
-import { computeLayout, envColor, draw, fitText, glyphOrigin, roomsInRect, exitPort, clearOf, exitGeometry, oneWayArrow, cardAt, NAME_LABEL_MIN_SCALE } from "./render.js";
+import { bandQuad, computeLayout, envColor, draw, fitText, glyphOrigin, roomsInRect, exitPort, clearOf, exitGeometry, oneWayArrow, cardAt, NAME_LABEL_MIN_SCALE } from "./render.js";
 import { setTerrains } from "./graph.js";
 import { addLink } from "./links.js";
 
@@ -54,7 +54,7 @@ describe("computeLayout", () => {
 
   it("returns empty layout with no current room", () => {
     const m = createMap();
-    expect(computeLayout(m, { cx: 0, cy: 0, scale: 40 })).toEqual({ rooms: [], exits: [], stubs: [], tints: [], regions: [], elevation: null, scale: 40 });
+    expect(computeLayout(m, { cx: 0, cy: 0, scale: 40 })).toEqual({ rooms: [], exits: [], stubs: [], patches: [], regions: [], elevation: null, scale: 40 });
   });
 
   it("envColor is deterministic and non-empty", () => {
@@ -240,26 +240,119 @@ describe("computeLayout: annotations", () => {
     expect(L.regions).toEqual([{ key: "docks", name: "docks", x: 40, top: -40 }]);
   });
 
-  it("bridges a one-cell gap between rooms of a region, but not an occupied one", () => {
-    const m = createMap();
-    const a = addRoom(m, { key: "a", coords: { x: 0, y: 0, z: 0 } });
-    const b = addRoom(m, { key: "b", coords: { x: 2, y: 0, z: 0 } });
-    const c = addRoom(m, { key: "c", coords: { x: 0, y: 2, z: 0 } });
-    addRoom(m, { key: "mid", coords: { x: 0, y: 1, z: 0 } });   // no region, sits in a↔c's gap
-    for (const r of [a, b, c]) r.region = "docks";
-    setCurrent(m, a.id);
-    const L = computeLayout(m, { cx: 0, cy: 0, scale: 10 });
-    expect(L.tints.map((t) => [t.px, t.py])).toEqual([[0, 0], [10, 0], [20, 0], [0, 20]]);
-  });
-
-  it("labels each separated cluster of a region on its own", () => {
+  it("labels each separated piece of a region on its own", () => {
     const m = createMap();
     const near = [0, 2].map((x) => addRoom(m, { key: `n${x}`, coords: { x, y: 0, z: 0 } }));
     const far = addRoom(m, { key: "far", coords: { x: 22, y: 0, z: 0 } });
     for (const r of [...near, far]) r.region = "concourse";
+    linkExit(m, near[0].id, "e", near[1].id);
     setCurrent(m, near[0].id);
     const L = computeLayout(m, { cx: 0, cy: 0, scale: 10 });
     expect(L.regions.map((g) => g.x)).toEqual([10, 220]);
+  });
+});
+
+describe("computeLayout: region patches", () => {
+  const band = (L, key = "r") => L.patches.find((p) => p.region === key).bands;
+
+  it("on a grid, a cell under each room, and neighbours touch into one piece without an exit", () => {
+    const m = createMap();
+    const rs = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([x, y]) => addRoom(m, { key: `${x}${y}`, coords: { x, y, z: 0 } }));
+    for (const r of rs) r.region = "r";
+    setCurrent(m, rs[0].id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 10 });
+    expect(L.patches).toEqual([{
+      region: "r", color: null, shape: "square", size: 5, band: 5,
+      nodes: [{ px: 0, py: 0 }, { px: 10, py: 0 }, { px: 0, py: 10 }, { px: 10, py: 10 }],
+      bands: [],
+    }]);
+    expect(L.regions).toEqual([{ key: "r", name: "r", x: 5, top: 0 }]);
+  });
+
+  it("on a grid, bands a diagonal and a two-cell exit a cell wide", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", coords: { x: 0, y: 0, z: 0 } });
+    const b = addRoom(m, { key: "b", coords: { x: 2, y: 0, z: 0 } });
+    const c = addRoom(m, { key: "c", coords: { x: 3, y: 1, z: 0 } });
+    for (const r of [a, b, c]) r.region = "r";
+    linkExit(m, a.id, "e", b.id); linkExit(m, b.id, "w", a.id);
+    linkExit(m, b.id, "se", c.id);
+    setCurrent(m, a.id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 10 });
+    expect(band(L)).toEqual([{ x1: 0, y1: 0, x2: 20, y2: 0 }, { x1: 20, y1: 0, x2: 30, y2: 10 }]);
+    expect(L.regions.length).toBe(1);
+  });
+
+  it("doesn't bridge rooms of a region a cell apart with no exit between", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", coords: { x: 0, y: 0, z: 0 } });
+    const c = addRoom(m, { key: "c", coords: { x: 0, y: 2, z: 0 } });
+    for (const r of [a, c]) r.region = "r";
+    setCurrent(m, a.id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 10 });
+    expect(band(L)).toEqual([]);
+    expect(L.regions.length).toBe(2);
+  });
+
+  it("off a grid, discs joined by a band along each exit, never across an unlinked gap", () => {
+    const m = createMap();
+    // Open land: km coords, odd spacing and angles.
+    const pts = { a: [4.8, 1], b: [6.1, 1.7], c: [6.9, 3.2], far: [9.4, 3.3] };
+    const R = {};
+    for (const [k, [x, y]] of Object.entries(pts)) { R[k] = addRoom(m, { key: k, coords: { x, y, z: 0 } }); R[k].region = "downs"; }
+    linkExit(m, R.a.id, "se", R.b.id); linkExit(m, R.b.id, "nw", R.a.id);
+    linkExit(m, R.b.id, "s", R.c.id);
+    setCurrent(m, R.a.id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    const p = L.patches[0];
+    expect(p).toMatchObject({ shape: "round", size: 24, band: 20 });
+    expect(p.nodes.length).toBe(4);
+    expect(p.bands.length).toBe(2);
+    const at = (k) => L.rooms.find((r) => r.id === R[k].id);
+    expect(p.bands[0]).toEqual({ x1: at("a").px, y1: at("a").py, x2: at("b").px, y2: at("b").py });
+    // `far` is 2.5 from c with no exit: its own piece, with its own label.
+    expect(p.bands.some((b) => b.x2 === at("far").px || b.x1 === at("far").px)).toBe(false);
+    expect(L.regions.length).toBe(2);
+  });
+
+  it("off a grid, discs that overlap are one piece without an exit", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", coords: { x: 0.3, y: 0, z: 0 } });
+    const b = addRoom(m, { key: "b", coords: { x: 1.1, y: 0.4, z: 0 } });
+    for (const r of [a, b]) r.region = "r";
+    setCurrent(m, a.id);
+    expect(computeLayout(m, { cx: 0, cy: 0, scale: 40 }).regions.length).toBe(1);
+  });
+
+  it("gives each region its own patch, and doesn't band an exit between two regions", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", coords: { x: 0, y: 0, z: 0 } });
+    const b = addRoom(m, { key: "b", coords: { x: 2, y: 0, z: 0 } });
+    a.region = "r"; b.region = "s";
+    linkExit(m, a.id, "e", b.id);
+    setCurrent(m, a.id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 10 });
+    expect(L.patches.map((p) => [p.region, p.bands.length])).toEqual([["r", 0], ["s", 0]]);
+  });
+
+  it("across a ring's seam, bands each end out toward where the other comes round", () => {
+    const m = createMap();
+    const rs = [0, 1, 2, 3].map((x) => addRoom(m, { key: `r${x}`, coords: { x: x * 2, y: 0, z: 0 } }));
+    for (const r of rs) { r.region = "ring"; r.wrapX = 8; }
+    for (let i = 0; i < 4; i++) linkExit(m, rs[i].id, "e", rs[(i + 1) % 4].id);
+    setCurrent(m, rs[0].id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 10 });
+    // Drawn at x = 0, 20, -40, -20: r1→r2 crosses the seam.
+    const seam = band(L, "ring").filter((b) => Math.abs(b.x2 - b.x1) === 20 && (b.x1 === 20 || b.x1 === -40));
+    expect(seam).toEqual(expect.arrayContaining([{ x1: 20, y1: 0, x2: 40, y2: 0 }, { x1: -40, y1: 0, x2: -60, y2: 0 }]));
+    // The rest of the ring joins r2 → r3 → r0 → r1 the short way: one piece.
+    expect(L.regions.length).toBe(1);
+  });
+
+  it("bandQuad traces a band clockwise on screen, as wide as asked", () => {
+    const q = bandQuad({ x1: 0, y1: 0, x2: 10, y2: 0 }, 3);
+    expect(q).toEqual([{ x: 0, y: -3 }, { x: 10, y: -3 }, { x: 10, y: 3 }, { x: 0, y: 3 }]);
+    expect(bandQuad({ x1: 1, y1: 1, x2: 1, y2: 1 }, 3)).toBe(null);
   });
 });
 
@@ -270,11 +363,13 @@ describe("draw: annotations", () => {
     return computeLayout(m, { cx: 0, cy: 0, scale });
   }
 
-  it("tints region cells, draws glyphs, and names rooms at the large zooms", () => {
+  it("tints each region with one fill, draws glyphs, and names rooms at the large zooms", () => {
     const ctx = recordingCtx();
     draw(ctx, layoutWith(NAME_LABEL_MIN_SCALE), { roomSize: 22 });
-    const tint = ctx.calls.find((c) => c[0] === "fillRect" && String(c[1]).startsWith("hsla"));
-    expect(tint.slice(2, 6)).toEqual([-22, -22, 44, 44]);
+    const tints = ctx.calls.filter((c) => c[0] === "fill" && String(c[1]).startsWith("hsla"));
+    expect(tints.length).toBe(1);
+    expect(tints[0][1]).toMatch(/, 0\.18\)$/);
+    expect(ctx.calls.some((c) => c[0] === "fillRect" && String(c[1]).startsWith("hsla"))).toBe(false);
     expect(texts(ctx)).toEqual(expect.arrayContaining(["⇅", "Hub", "B", "hub"]));
   });
 
@@ -312,7 +407,7 @@ describe("draw: floor marks", () => {
 describe("draw: region label collisions", () => {
   it("skips a region label that would overlap one already drawn", () => {
     const ctx = recordingCtx();
-    const layout = { rooms: [], exits: [], tints: [], scale: 40, regions: [
+    const layout = { rooms: [], exits: [], patches: [], scale: 40, regions: [
       { key: "a", name: "Alpha", x: 0, top: 0 },
       { key: "b", name: "Bravo", x: 10, top: 0 },
       { key: "c", name: "Charlie", x: 200, top: 0 },
@@ -848,8 +943,8 @@ describe("computeLayout: region colours", () => {
     area.regionColors = { docks: "#102030" };
     setCurrent(m, r1.id);
     const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
-    expect(L.tints.find((t) => t.region === "docks").color).toBe("#102030");
-    expect(L.tints.find((t) => t.region === "old").color).toBe(null);
+    expect(L.patches.find((t) => t.region === "docks").color).toBe("#102030");
+    expect(L.patches.find((t) => t.region === "old").color).toBe(null);
   });
 });
 

@@ -38,7 +38,7 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       .sort((a, b) => Number(a) - Number(b));
     anchor = ids.length ? map.rooms[ids[0]] : null;
   }
-  if (!anchor) return { rooms: [], exits: [], stubs: [], tints: [], regions: [], elevation: null, scale };
+  if (!anchor) return { rooms: [], exits: [], stubs: [], patches: [], regions: [], elevation: null, scale };
   const z = viewedZ != null ? viewedZ : anchor.coords.z;
 
   const pathRooms = path && path.rooms ? path.rooms : null;
@@ -76,14 +76,13 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
     });
   }
 
-  const { tints, regions } = regionLayout(map, rooms, viewArea, z, anchor, cx, cy, scale);
-
   // Each exit line carries the direction it leaves each room by (dir1 from
   // the x1/y1 end, dir2 from the other; null where that room has no exit
   // back), so draw() can start it from that side of the room.
   const exits = [];
   const seen = new Set();
   const drawn = new Set();   // `${id}|${dir}` of exits a line already shows
+  const joins = [];          // drawn lines between two rooms of one region (regionLayout)
   for (const id of Object.keys(map.rooms)) {
     const r = map.rooms[id];
     if (!placed[id]) continue;
@@ -105,6 +104,7 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       const style = strongerStyle(exitStyle(r, dir), back ? exitStyle(map.rooms[to], back) : "path");
       const styled = style === "path" ? {} : { style };
       const step = wrapStep(a, b);
+      if (r.region && r.region === map.rooms[to].region) joins.push({ a: id, b: to, step });
       if (step == null) {
         // With no way back at all it's one way, drawn with an arrow into `to`.
         const oneWay = !back && !leadsTo(map.rooms[to], id);
@@ -147,7 +147,8 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
     }
   }
 
-  return { rooms, exits, stubs, tints, regions, elevation, scale };
+  const { patches, regions } = regionLayout(map, rooms, joins, viewArea, scale);
+  return { rooms, exits, stubs, patches, regions, elevation, scale };
 }
 
 // Where a stub to a room out of view leads, for its card: another area (by
@@ -417,72 +418,173 @@ function wrapStep(a, b) {
   return step === drawn ? null : step;
 }
 
-// Region tints and labels. A tint is a cell under each room in a region, plus
-// the one empty cell between two rooms of the same region two cells apart (a
-// layout that spaces rooms out, like a ring with a node every other cell,
-// still reads as one patch). Rooms of a region within two cells of each other
-// form a cluster, labelled once, centred over it and just above its top row —
-// so a region split by the view or by a ring's seam gets a label per piece.
-function regionLayout(map, rooms, areaId, z, anchor, cx, cy, scale) {
-  const tints = [], regions = [];
+// Region tints and labels. Each region is one patch: a shape under each of
+// its rooms, plus a band along each exit line between two of its rooms, all
+// filled together as one shape (draw), so the region reads as one piece that
+// follows its rooms and the ways between them. Rooms of a region that aren't
+// joined by an exit and don't touch stay separate pieces, however near.
+//
+// On a grid (every room of the region at whole-number coords: stations,
+// rings) the shape is the room's full cell, so neighbours tile into a solid
+// block, and a band a cell wide joins two rooms a diagonal or a cell apart.
+// Off a grid (open land placed by the server's km, rooms an odd 1.3 apart at
+// odd angles) it's a disc, and the bands are as wide, so the patch is a
+// rounded ribbon along the paths. A way across a ring's seam bands each end
+// out to where the other room comes round, as its line is drawn.
+//
+// Labels: one per piece (rooms joined by a band, or whose shapes touch),
+// centred over it and just above its top row, so a region split by the view
+// or a ring's seam gets a label per piece.
+export const PATCH_SQUARE = 0.5;   // half a cell: the room's whole cell
+export const PATCH_ROUND = 0.6;    // the disc's radius, in cells
+export const PATCH_BAND_ROUND = 0.5;   // half the band's width off a grid, in cells
+
+function regionLayout(map, rooms, joins, areaId, scale) {
+  const patches = [], regions = [];
   const inRegion = rooms.filter((r) => r.region);
-  if (inRegion.length === 0) return { tints, regions };
-  const cell = (r) => r.cell;
-  const occupied = new Set();
-  for (const id of Object.keys(map.rooms)) {
-    const r = map.rooms[id];
-    if (r.areaId !== areaId || r.coords.z !== z) continue;
-    const c = viewCell(r, anchor);
-    occupied.add(`${c.x},${c.y}`);
-  }
-  const at = new Map(inRegion.map((r) => [`${cell(r).x},${cell(r).y}`, r]));
-  const toPx = (x, y) => ({ px: cx + (x - anchor.coords.x) * scale, py: cy + (y - anchor.coords.y) * scale });
+  if (inRegion.length === 0) return { patches, regions };
+  const byId = new Map(inRegion.map((r) => [r.id, r]));
 
-  // One tint per cell, even where two rooms share it.
-  const tinted = new Set();
-  const colors = new Map();   // region → the server's colour, or null
-  const colorOf = (key) => {
-    if (!colors.has(key)) colors.set(key, areaRegionColor(map, areaId, key));
-    return colors.get(key);
-  };
-  const tint = (t) => {
-    const k = `${t.px},${t.py}`;
-    if (!tinted.has(k)) { tinted.add(k); tints.push({ ...t, color: colorOf(t.region) }); }
-  };
+  const byRegion = new Map();
   for (const r of inRegion) {
-    tint({ px: r.px, py: r.py, region: r.region });
-    const { x, y } = cell(r);
-    for (const [dx, dy] of [[2, 0], [0, 2]]) {
-      const other = at.get(`${x + dx},${y + dy}`);
-      const mid = `${x + dx / 2},${y + dy / 2}`;
-      if (other && other.region === r.region && !occupied.has(mid)) {
-        tint({ ...toPx(x + dx / 2, y + dy / 2), region: r.region });
-      }
+    if (!byRegion.has(r.region)) byRegion.set(r.region, []);
+    byRegion.get(r.region).push(r);
+  }
+  const patchOf = new Map();
+  for (const [key, rs] of byRegion) {
+    const grid = rs.every((r) => Number.isInteger(r.cell.x) && Number.isInteger(r.cell.y));
+    const p = {
+      region: key,
+      color: areaRegionColor(map, areaId, key),
+      shape: grid ? "square" : "round",
+      size: (grid ? PATCH_SQUARE : PATCH_ROUND) * scale,
+      band: (grid ? PATCH_SQUARE : PATCH_BAND_ROUND) * scale,
+      nodes: [],
+      bands: [],
+    };
+    const at = new Set();   // one shape per spot, even where two rooms share it
+    for (const r of rs) {
+      const k = `${r.px},${r.py}`;
+      if (!at.has(k)) { at.add(k); p.nodes.push({ px: r.px, py: r.py }); }
+    }
+    patches.push(p);
+    patchOf.set(key, p);
+  }
+
+  // Pieces: union-find over the region's rooms.
+  const parent = new Map(inRegion.map((r) => [r.id, r.id]));
+  const find = (id) => {
+    while (parent.get(id) !== id) { parent.set(id, parent.get(parent.get(id))); id = parent.get(id); }
+    return id;
+  };
+  const union = (a, b) => parent.set(find(a), find(b));
+
+  for (const j of joins) {
+    const a = byId.get(j.a), b = byId.get(j.b);
+    if (!a || !b) continue;
+    const p = patchOf.get(a.region);
+    if (j.step == null) {
+      p.bands.push({ x1: a.px, y1: a.py, x2: b.px, y2: b.py });
+      union(a.id, b.id);
+    } else {
+      // Each end runs off toward where the other comes round; the two ends
+      // are separate pieces on screen, so they aren't joined.
+      p.bands.push({ x1: a.px, y1: a.py, x2: a.px + j.step * scale, y2: b.py });
+      p.bands.push({ x1: b.px, y1: b.py, x2: b.px - j.step * scale, y2: a.py });
     }
   }
 
-  const seen = new Set();
-  for (const start of inRegion) {
-    if (seen.has(start.id)) continue;
-    seen.add(start.id);
-    const group = [start];
-    for (let i = 0; i < group.length; i++) {
-      const a = cell(group[i]);
-      for (const b of inRegion) {
-        if (seen.has(b.id) || b.region !== start.region) continue;
-        const c = cell(b);
-        if (Math.abs(a.x - c.x) <= 2 && Math.abs(a.y - c.y) <= 2) { seen.add(b.id); group.push(b); }
+  // Shapes that touch join without an exit (a grid's neighbours, a block
+  // with walls between). Bucketed by two cells, so this isn't n².
+  for (const rs of byRegion.values()) {
+    const grid = patchOf.get(rs[0].region).shape === "square";
+    const touch = grid
+      ? (a, b) => Math.abs(a.cell.x - b.cell.x) <= 1 + 1e-9 && Math.abs(a.cell.y - b.cell.y) <= 1 + 1e-9
+      : (a, b) => Math.hypot(a.cell.x - b.cell.x, a.cell.y - b.cell.y) <= 2 * PATCH_ROUND + 1e-9;
+    const buckets = new Map();
+    const bk = (x, y) => `${x},${y}`;
+    for (const r of rs) {
+      const bx = Math.floor(r.cell.x / 2), by = Math.floor(r.cell.y / 2);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (const o of buckets.get(bk(bx + dx, by + dy)) || []) if (touch(r, o)) union(r.id, o.id);
+        }
       }
+      const k = bk(bx, by);
+      if (!buckets.has(k)) buckets.set(k, []);
+      buckets.get(k).push(r);
     }
+  }
+
+  const groups = new Map();
+  for (const r of inRegion) {
+    const root = find(r.id);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(r);
+  }
+  for (const group of groups.values()) {
     const xs = group.map((r) => r.px);
     regions.push({
-      key: start.region,
-      name: regionName(map, map.rooms[start.id]),
+      key: group[0].region,
+      name: regionName(map, map.rooms[group[0].id]),
       x: (Math.min(...xs) + Math.max(...xs)) / 2,
       top: Math.min(...group.map((r) => r.py)),
     });
   }
-  return { tints, regions };
+  return { patches, regions };
+}
+
+// A region's patch, filled once at the tint's alpha. Every piece is traced
+// clockwise, so under the nonzero rule where they overlap is still just
+// inside: one fill, no darker seams.
+const PATCH_ALPHA = 0.18;
+function drawPatch(ctx, p) {
+  ctx.beginPath();
+  const s = p.size;
+  for (const n of p.nodes) {
+    if (p.shape === "square") {
+      ctx.moveTo(n.px - s, n.py - s);
+      ctx.lineTo(n.px + s, n.py - s);
+      ctx.lineTo(n.px + s, n.py + s);
+      ctx.lineTo(n.px - s, n.py + s);
+      ctx.closePath();
+    } else {
+      ctx.moveTo(n.px + s, n.py);
+      ctx.arc(n.px, n.py, s, 0, Math.PI * 2, false);
+      ctx.closePath();
+    }
+  }
+  for (const b of p.bands) {
+    const q = bandQuad(b, p.band);
+    if (!q) continue;
+    ctx.moveTo(q[0].x, q[0].y);
+    for (let i = 1; i < q.length; i++) ctx.lineTo(q[i].x, q[i].y);
+    ctx.closePath();
+    // Off a grid a band's far end is capped round (a seam's end has no disc).
+    if (p.shape === "round") {
+      ctx.moveTo(b.x2 + p.band, b.y2);
+      ctx.arc(b.x2, b.y2, p.band, 0, Math.PI * 2, false);
+      ctx.closePath();
+    }
+  }
+  ctx.fillStyle = regionColor(p.region, PATCH_ALPHA, p.color);
+  ctx.fill("nonzero");
+}
+
+// The four corners of a band `hw` either side of the line from (x1, y1) to
+// (x2, y2), clockwise on screen (y down). Null for a band of no length.
+export function bandQuad(b, hw) {
+  const dx = b.x2 - b.x1, dy = b.y2 - b.y1;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-9) return null;
+  const nx = -dy / len * hw, ny = dx / len * hw;
+  // Along +d then back on the +n side: clockwise when y points down.
+  return [
+    { x: b.x1 - nx, y: b.y1 - ny },
+    { x: b.x2 - nx, y: b.y2 - ny },
+    { x: b.x2 + nx, y: b.y2 + ny },
+    { x: b.x1 + nx, y: b.y1 + ny },
+  ];
 }
 
 // Canvas colours can't reference CSS variables, so the host theme is threaded
@@ -529,12 +631,9 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
   const half = roomSize / 2;
   const scale = layout.scale || roomSize * 2;
 
-  // Region tints first: a faint full cell under each room, so a region's
-  // neighbouring rooms join into one patch beneath the exits.
-  for (const t of layout.tints || []) {
-    ctx.fillStyle = regionColor(t.region, 0.18, t.color);
-    ctx.fillRect(t.px - scale / 2, t.py - scale / 2, scale, scale);
-  }
+  // Region tints first, beneath the exits: each region's patch is one path
+  // filled once, so where its pieces overlap it doesn't darken.
+  for (const p of layout.patches || []) drawPatch(ctx, p);
   ctx.lineCap = "round";
   for (const e of layout.exits) {
     const g = exitGeometry(e, half);
