@@ -997,3 +997,45 @@ describe("computeLayout: exit styles", () => {
     }
   });
 });
+
+describe("computeLayout relief", () => {
+  async function reliefMap() {
+    const { decodePatch, mergePatch } = await import("./relief.js");
+    const m = createMap();
+    const area = addArea(m, { key: "zone:hills", label: "Hills" });
+    const a = addRoom(m, { key: "a", name: "A", coords: { x: 0, y: 0, z: 0 }, areaId: area.id });
+    setCurrent(m, a.id);
+    return { m, a, area, decodePatch, mergePatch };
+  }
+
+  it("is null with no grid and fewer than two rooms with an elevation", async () => {
+    const { m, a } = await reliefMap();
+    a.elevation = 10;
+    expect(computeLayout(m, { cx: 0, cy: 0, scale: 40 }).relief).toBe(null);
+  });
+
+  it("carries the floor's grid by the area's frame key, and rooms with elevation", async () => {
+    const { m, a, area, decodePatch, mergePatch } = await reliefMap();
+    mergePatch(m, decodePatch({ area: "hills", cell: 0.5, x: 0, y: 0, cols: 1, rows: 1, height: [5] }));
+    a.elevation = 10;
+    const b = addRoom(m, { key: "b", coords: { x: 1, y: 0, z: 0 }, areaId: area.id });
+    b.elevation = 30;
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    expect(L.relief.grid).toBe(m.relief.hills[0]);
+    expect(L.relief.rooms).toEqual([{ x: 0, y: 0, e: 10 }, { x: 1, y: 0, e: 30 }]);
+    expect(L.relief.on).toBe(true);
+    // Another floor has no grid.
+    expect(computeLayout(m, { cx: 0, cy: 0, scale: 40, viewedZ: 1 }).relief).toBe(null);
+  });
+
+  it("is there with shading off, marked off, and draw paints nothing for it", async () => {
+    const { m, decodePatch, mergePatch } = await reliefMap();
+    mergePatch(m, decodePatch({ area: "hills", cell: 0.5, x: 0, y: 0, cols: 1, rows: 1, height: [5] }));
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40, shade: false });
+    expect(L.relief.on).toBe(false);
+    const calls = [];
+    const ctx = new Proxy({}, { get: (_t, k) => (k === "measureText" ? () => ({ width: 10 }) : (...args) => calls.push(k)), set: () => true });
+    expect(draw(ctx, L, { roomSize: 20, labels: false, size: { width: 100, height: 100 } }).relief).toBe(null);
+    expect(calls).not.toContain("drawImage");
+  });
+});

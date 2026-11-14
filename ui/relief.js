@@ -385,7 +385,7 @@ export function reliefField(view, width, height) {
     if (H[k] > max) max = H[k];
   }
   if (min === Infinity) return null;
-  return { i0, k0, cols, rows, cell, H, G, cov, est, min, max, ids: grid ? grid.ids : [] };
+  return { i0, k0, cols, rows, cell, H, G, cov, est, known, min, max, ids: grid ? grid.ids : [] };
 }
 
 function smooth(t) {
@@ -508,10 +508,59 @@ export function hillshade(field, steep) {
 
 // ── Painting ─────────────────────────────────────────────────────────────────
 
+// Soften the known region's edge for the one-pixel-per-cell images: each
+// cell within `rad` of a known cell takes the alpha-weighted colour of the
+// known cells round it, at their mean alpha, and every cell's alpha is scaled
+// by how much of that box is known (eased), so the edge comes out a soft
+// curve rather than steps. A known cell keeps its own colour.
+// `rgba` holds colour and alpha (0…1) per cell, set on known cells; cells
+// marked `keep` (estimated ones) are copied as they are. → RGBA bytes.
+export function feather(rgba, known, cols, rows, keep = null, rad = 2) {
+  const out = new Uint8ClampedArray(cols * rows * 4);
+  const box = (2 * rad + 1) * (2 * rad + 1);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const k = r * cols + c;
+      if (keep && keep[k]) {
+        out[k * 4] = rgba[k * 4]; out[k * 4 + 1] = rgba[k * 4 + 1]; out[k * 4 + 2] = rgba[k * 4 + 2];
+        out[k * 4 + 3] = rgba[k * 4 + 3] * 255;
+        continue;
+      }
+      let n = 0, sa = 0, sr = 0, sg = 0, sb = 0;
+      for (let dr = -rad; dr <= rad; dr++) {
+        const rr = r + dr;
+        if (rr < 0 || rr >= rows) continue;
+        for (let dc = -rad; dc <= rad; dc++) {
+          const cc = c + dc;
+          if (cc < 0 || cc >= cols) continue;
+          const q = rr * cols + cc;
+          if (!known[q]) continue;
+          n++;
+          const a = rgba[q * 4 + 3];
+          sa += a; sr += rgba[q * 4] * a; sg += rgba[q * 4 + 1] * a; sb += rgba[q * 4 + 2] * a;
+        }
+      }
+      if (!n) continue;
+      const edge = smooth((n / box - 0.12) / 0.5);
+      if (known[k]) {
+        // A known cell keeps its own colour; only its alpha eases at the edge.
+        out[k * 4] = rgba[k * 4]; out[k * 4 + 1] = rgba[k * 4 + 1]; out[k * 4 + 2] = rgba[k * 4 + 2];
+        out[k * 4 + 3] = rgba[k * 4 + 3] * edge * 255;
+      } else if (sa > 0) {
+        out[k * 4] = sr / sa; out[k * 4 + 1] = sg / sa; out[k * 4 + 2] = sb / sa;
+        out[k * 4 + 3] = (sa / n) * edge * 255;
+      }
+    }
+  }
+  return out;
+}
+
 // Kept subtle: rooms, exits, labels and region patches stay primary.
 export const GROUND_ALPHA = 0.26;
 export const SHADE_LIGHT_ALPHA = 0.16;
 export const SHADE_DARK_ALPHA = 0.3;
+// On a light background shadow shows more and light less.
+const LIGHT_BG_DARK = 0.6, LIGHT_BG_LIGHT = 1.4;
 export const CONTOUR_ALPHA = 0.16;
 export const INDEX_CONTOUR_ALPHA = 0.3;
 
@@ -538,7 +587,7 @@ let cache = null;   // { key, canvas, info }
 // ground, shading and contours, rendered once into a layer the size of the
 // canvas and reused until the view or the data changes. `groundColor(id)` is
 // a ground id's "#rrggbb"; `colors.label` inks the contours. Returns
-// { interval, estimated, grounds: [id] } for the legend, or null when
+// { interval, estimated, measured, grounds: [id] } for the legend, or null when
 // nothing was drawn.
 export function paintRelief(ctx, view, { width, height, groundColor, colors }) {
   const ratio = (ctx.getTransform && ctx.getTransform().a) || 1;
@@ -546,10 +595,12 @@ export function paintRelief(ctx, view, { width, height, groundColor, colors }) {
   const key = JSON.stringify([
     view.grid ? view.grid.rev : 0, view.roomsSig || "", view.wrapX || 0,
     view.anchor.x, view.anchor.y, view.cx, view.cy, view.scale, width, height, ratio,
-    colors.label, grounds,
+    colors.label, colors.halo, grounds,
   ]);
   if (!cache || cache.key !== key) {
-    const built = buildLayer(view, width, height, ratio, groundColor, colors.label);
+    const bg = rgbOf(colors.halo);
+    const lightBg = !!bg && 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2] > 140;
+    const built = buildLayer(view, width, height, ratio, groundColor, colors.label, lightBg);
     cache = { key, ...built };
   }
   if (cache.canvas) ctx.drawImage(cache.canvas, 0, 0, width, height);
@@ -559,13 +610,14 @@ export function paintRelief(ctx, view, { width, height, groundColor, colors }) {
 // For tests: forget the cached layer.
 export function resetReliefCache() { cache = null; }
 
-function buildLayer(view, width, height, ratio, groundColor, ink) {
+function buildLayer(view, width, height, ratio, groundColor, ink, lightBg) {
   const field = reliefField(view, width, height);
   if (!field) return { canvas: null, info: null };
   const interval = contourInterval(field.min, field.max);
   const info = {
     interval,
     estimated: field.est.some((v) => v),
+    measured: field.known.some((v) => v),
     grounds: [...new Set([...field.G].filter((g) => g !== UNKNOWN_G))].map((g) => field.ids[g]).filter(Boolean),
   };
   const W = Math.max(1, Math.round(width * ratio)), Ht = Math.max(1, Math.round(height * ratio));
@@ -589,30 +641,33 @@ function buildLayer(view, width, height, ratio, groundColor, ink) {
     if ("imageSmoothingQuality" in g) g.imageSmoothingQuality = "high";
     g.drawImage(small, X(-0.5), Y(-0.5), cols * cell * scale, rows * cell * scale);
   };
+  const { known } = field;
   const palette = field.ids.map((id) => rgbOf(groundColor(id)));
+  const toImage = (bytes) => { const img = sg.createImageData(cols, rows); img.data.set(bytes); return img; };
   if (palette.some(Boolean)) {
-    const img = sg.createImageData(cols, rows);
+    const rgba = new Float32Array(n * 4);
+    const has = new Uint8Array(n);
     for (let k = 0; k < n; k++) {
-      const rgb = G[k] !== UNKNOWN_G && !est[k] ? palette[G[k]] : null;
-      if (!rgb || cov[k] <= 0) continue;
-      img.data[k * 4] = rgb[0]; img.data[k * 4 + 1] = rgb[1]; img.data[k * 4 + 2] = rgb[2];
-      img.data[k * 4 + 3] = Math.round(255 * GROUND_ALPHA * cov[k]);
+      const rgb = known[k] && G[k] !== UNKNOWN_G ? palette[G[k]] : null;
+      if (!rgb) continue;
+      has[k] = 1;
+      rgba[k * 4] = rgb[0]; rgba[k * 4 + 1] = rgb[1]; rgba[k * 4 + 2] = rgb[2]; rgba[k * 4 + 3] = GROUND_ALPHA;
     }
-    blit(img);
+    blit(toImage(feather(rgba, has, cols, rows)));
   }
 
-  const shade = hillshade(field, (interval || 1) * 1.5);
+  const shade = hillshade(field, (interval || 1) * 0.6);
   {
-    const img = sg.createImageData(cols, rows);
+    const rgba = new Float32Array(n * 4);
     for (let k = 0; k < n; k++) {
       const t = shade[k];
-      if (!t || cov[k] <= 0) continue;
+      if (!(known[k] || est[k])) continue;
       const v = t > 0 ? 255 : 0;
-      img.data[k * 4] = v; img.data[k * 4 + 1] = v; img.data[k * 4 + 2] = v;
-      img.data[k * 4 + 3] = Math.round(255 * Math.abs(t) * (t > 0 ? SHADE_LIGHT_ALPHA : SHADE_DARK_ALPHA) * cov[k]);
+      rgba[k * 4] = v; rgba[k * 4 + 1] = v; rgba[k * 4 + 2] = v;
+      const alpha = t > 0 ? SHADE_LIGHT_ALPHA * (lightBg ? LIGHT_BG_LIGHT : 1) : SHADE_DARK_ALPHA * (lightBg ? LIGHT_BG_DARK : 1);
+      rgba[k * 4 + 3] = Math.abs(t) * alpha * (est[k] ? cov[k] : 1);
     }
-    sg.clearRect(0, 0, cols, rows);
-    blit(img);
+    blit(toImage(feather(rgba, known, cols, rows, est)));
   }
 
   // Contours: thin, low-contrast, every fifth a little stronger; faded with
@@ -646,4 +701,28 @@ function buildLayer(view, width, height, ratio, groundColor, ink) {
     g.globalAlpha = 1;
   }
   return { canvas: layer, info };
+}
+
+// ── Deleting areas ───────────────────────────────────────────────────────────
+
+// The ids of areas that have a room.
+export function areasWithRooms(map) {
+  const out = new Set();
+  for (const id of Object.keys(map.rooms)) out.add(map.rooms[id].areaId);
+  return out;
+}
+
+// After the user deletes rooms: forget the grids of each area that had rooms
+// (`had`, from areasWithRooms before) and now has none. An area the map knows
+// only by its relief, sent before you've been there, is left alone. True if
+// any were cleared.
+export function clearEmptiedRelief(map, had) {
+  const now = areasWithRooms(map);
+  let cleared = false;
+  for (const id of had) {
+    if (now.has(id)) continue;
+    const key = reliefArea(map.areas && map.areas[id]);
+    if (key && clearRelief(map, key)) cleared = true;
+  }
+  return cleared;
 }

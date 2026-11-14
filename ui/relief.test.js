@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   decodePatch, mergePatch, clearRelief, reliefArea, ReliefGrid, reliefFromJSON,
   b64FromBytes, bytesFromB64, wrapCells, wrapI, contourInterval, contourSegments,
-  reliefField, hillshade, UNKNOWN_H, UNKNOWN_G, CHUNK, FALLBACK_REACH,
+  reliefField, hillshade, areasWithRooms, clearEmptiedRelief, UNKNOWN_H, UNKNOWN_G, CHUNK, FALLBACK_REACH,
 } from "./relief.js";
 import { createMap, toJSON, fromJSON } from "./graph.js";
 
@@ -338,5 +338,42 @@ describe("hillshade", () => {
     const down = hillshade({ H: new Float32Array([20, 10, 0, 20, 10, 0, 20, 10, 0]), cols: 3, rows: 3 }, 10);
     expect(down[4]).toBeLessThan(0);
     expect(hillshade({ H: new Float32Array(9).fill(5), cols: 3, rows: 3 }, 10)[4]).toBe(0);
+  });
+});
+
+describe("clearEmptiedRelief", () => {
+  it("clears the grids of an area whose last room was deleted, only", () => {
+    const m = createMap();
+    m.areas = { 1: { id: "1", key: "zone:a" }, 2: { id: "2", key: "zone:b" } };
+    m.rooms = { 1: { id: "1", areaId: "1" }, 2: { id: "2", areaId: "2" } };
+    mergePatch(m, decodePatch(patch({ area: "a" })));
+    mergePatch(m, decodePatch(patch({ area: "b" })));
+    mergePatch(m, decodePatch(patch({ area: "c" })));   // no rooms there yet
+    const had = areasWithRooms(m);
+    delete m.rooms[1];
+    expect(clearEmptiedRelief(m, had)).toBe(true);
+    expect(Object.keys(m.relief).sort()).toEqual(["b", "c"]);
+  });
+});
+
+describe("feather", () => {
+  it("keeps interior cells, eases the edge, and bleeds colour just past it", async () => {
+    const { feather } = await import("./relief.js");
+    const cols = 9, rows = 1 + 8;
+    const known = new Uint8Array(cols * rows), rgba = new Float32Array(cols * rows * 4);
+    // Known: the left five columns.
+    for (let r = 0; r < rows; r++) for (let c = 0; c < 5; c++) {
+      const k = r * cols + c;
+      known[k] = 1;
+      rgba.set([200, 100, 50, 0.5], k * 4);
+    }
+    const out = feather(rgba, known, cols, rows);
+    const a = (c) => out[(4 * cols + c) * 4 + 3];
+    expect(a(1)).toBe(Math.round(0.5 * 255));      // well inside: as it was
+    expect(a(4)).toBeLessThan(a(1));               // the last known column eases
+    expect(a(5)).toBeGreaterThan(0);               // just past it, a little
+    expect(a(5)).toBeLessThan(a(4));
+    expect(out[(4 * cols + 5) * 4]).toBe(200);     // in the known colour
+    expect(a(8)).toBe(0);                          // further, nothing
   });
 });

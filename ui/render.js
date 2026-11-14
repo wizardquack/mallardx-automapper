@@ -9,6 +9,7 @@ import {
   fillColor, roomGlyph, regionColor, regionName, inkOn, envColor, areaRegionColor,
   elevationRange, shadeAmount, shadeColor, exitStyle, strongerStyle,
 } from "./annotate.js";
+import { reliefArea, paintRelief } from "./relief.js";
 
 export { envColor };
 
@@ -21,6 +22,10 @@ export const GLYPH_MIN_ROOM = 12;
 // `shade` lightens or darkens each room with an elevation by where it sits
 // between the lowest and highest rooms on the floor drawn (annotate.js); the
 // layout's `elevation` is that range, or null where no room on it has one.
+// `relief` is what draw() needs to paint the ground relief (relief.js) under
+// everything, or null where the floor has no grid and fewer than two rooms
+// with an elevation; it's there with `shade` off too (with `on` false), so
+// the toggle still shows.
 export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path = null, anchorId = null, shade = true }) {
   const cur = map.currentId != null ? map.rooms[map.currentId] : null;
   const viewArea = areaId != null ? areaId : (cur ? cur.areaId : null);
@@ -148,7 +153,32 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
   }
 
   const { patches, regions } = regionLayout(map, rooms, joins, viewArea, scale);
-  return { rooms, exits, stubs, patches, regions, elevation, scale };
+  const relief = reliefView(map, onFloor, viewArea, z, anchor, cx, cy, scale, shade);
+  return { rooms, exits, stubs, patches, regions, elevation, relief, scale };
+}
+
+// The relief to draw for this floor: the area's grid for it, if any, and the
+// rooms with an elevation (for the estimate where no grid is near), at the
+// x they're drawn at on a ring. `roomsSig` lets the painter's cache tell
+// when those rooms change.
+function reliefView(map, onFloor, areaId, z, anchor, cx, cy, scale, on) {
+  const key = reliefArea(map.areas && map.areas[areaId]);
+  const grid = (key && map.relief && map.relief[key] && map.relief[key][z]) || null;
+  const rooms = [];
+  let wrapX = null;
+  for (const r of onFloor) {
+    if (r.wrapX && !wrapX) wrapX = r.wrapX;
+    if (!Number.isFinite(r.elevation)) continue;
+    const c = viewCell(r, anchor);
+    rooms.push({ x: c.x, y: c.y, e: r.elevation });
+  }
+  if (!grid && rooms.length < 2) return null;
+  return {
+    on, grid, rooms, wrapX, cx, cy, scale,
+    anchor: { x: anchor.coords.x, y: anchor.coords.y },
+    roomsSig: rooms.map((r) => `${r.x},${r.y},${r.e}`).join(";"),
+    groundColor: (id) => fillColor(map, { env: id }),
+  };
 }
 
 // Where a stub to a room out of view leads, for its card: another area (by
@@ -626,10 +656,24 @@ export function clearOf(color) {
   return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, 0)`;
 }
 
-export function draw(ctx, layout, { roomSize, colors, labels = true }) {
+// `size` is the canvas's size in CSS px ({ width, height }), for the relief
+// layer; without it, the backing size over the context's scale.
+export function draw(ctx, layout, { roomSize, colors, labels = true, size = null }) {
   const c = { ...DEFAULT_COLORS, ...(colors || {}) };
   const half = roomSize / 2;
   const scale = layout.scale || roomSize * 2;
+
+  // Ground relief first, under the region patches and everything else.
+  let relief = null;
+  if (layout.relief && layout.relief.on) {
+    const ratio = (ctx.getTransform && ctx.getTransform().a) || 1;
+    const cv = ctx.canvas;
+    const width = size ? size.width : cv ? cv.width / ratio : 0;
+    const height = size ? size.height : cv ? cv.height / ratio : 0;
+    if (width > 0 && height > 0) {
+      relief = paintRelief(ctx, layout.relief, { width, height, groundColor: layout.relief.groundColor, colors: c });
+    }
+  }
 
   // Region tints first, beneath the exits: each region's patch is one path
   // filled once, so where its pieces overlap it doesn't darken.
@@ -694,7 +738,7 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
     if (marked) drawFloorMarks(ctx, r, half);
   }
   ctx.globalAlpha = 1;
-  if (!labels) return { cards };
+  if (!labels) return { cards, relief };
 
   if (names.length) {
     ctx.font = NAME_FONT;
@@ -708,7 +752,7 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
     ctx.textBaseline = "bottom";
     for (const g of regionLabels) haloText(ctx, g.name, g.x, g.y, c);
   }
-  return { cards };
+  return { cards, relief };
 }
 
 const NAME_FONT = "10px system-ui, sans-serif";
