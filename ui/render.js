@@ -310,7 +310,7 @@ export function exitStroke(style, { onPath = false, half = 8 } = {}) {
       return { width: onPath ? Math.max(w, 4) + 1.5 : w, dash: [], alpha: 1, ticks: false };
     }
     case "trail":
-      return { width: onPath ? 3 : 1.5, dash: [0.5, 3.5], alpha: onPath ? 1 : 0.75, ticks: false };
+      return { width: onPath ? 3 : 1.75, dash: [0.5, 3], alpha: onPath ? 1 : 0.85, ticks: false };
     case "climb":
       return { width: onPath ? 3 : 1.5, dash: [], alpha: 1, ticks: true };
     default:

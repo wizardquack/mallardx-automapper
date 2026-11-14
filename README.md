@@ -168,7 +168,7 @@ The scroll wheel or a trackpad pinch also zooms, towards the pointer.
 
 Where rooms on the floor in view have an `elevation`, each is lightened
 (higher) or darkened (lower) a little, by where it sits between the lowest
-and highest of them: about 18% toward white or black at the ends. A range
+and highest of them: a 30% mix toward white or black at the ends (about ±15 points of lightness on a mid-tone). A range
 under 100 m is treated as 100 m about its middle, so a nearly flat area is
 barely shaded. It shades every room with an elevation, your coloured ones
 too, so height reads the same everywhere; the terrain (or your colour)

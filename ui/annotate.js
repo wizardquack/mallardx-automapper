@@ -187,7 +187,7 @@ export function regionName(map, room) {
 // they sit between the lowest and highest rooms in view. Subtle, so the
 // terrain colour stays the main signal; and over a span of at least
 // SHADE_MIN_SPAN metres, so a nearly flat area isn't shaded hard.
-export const SHADE_STRENGTH = 0.18;
+export const SHADE_STRENGTH = 0.3;
 export const SHADE_MIN_SPAN = 100;
 
 // The lowest and highest elevation among `rooms`, or null where none has one.

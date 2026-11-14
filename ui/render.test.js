@@ -811,7 +811,7 @@ describe("computeLayout: height shading", () => {
   it("inks the glyph for the shaded fill", () => {
     const m = createMap();
     const area = addArea(m, { key: "land" });
-    // #969696 reads with black ink; darkened by 18% (to #7b7b7b) it takes white.
+    // #969696 reads with black ink; darkened (30% toward black) it takes white.
     setTerrains(m, { x: { label: "X", color: "#969696" } });
     const lo = addRoom(m, { key: "lo", env: "x", coords: { x: 0, y: 0, z: 0 }, areaId: area.id });
     const hi = addRoom(m, { key: "hi", env: "x", coords: { x: 1, y: 0, z: 0 }, areaId: area.id });
