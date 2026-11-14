@@ -16,6 +16,9 @@ export function createMap() {
     currentId: null,
     // mudstd.room.terrain definitions: { [id]: { label, color } }.
     terrains: {},
+    // mudstd.room.tags definitions, in the server's order (annotate.js
+    // roomGlyph takes the first with a glyph): [{ id, label, glyph }].
+    tagDefs: [],
     // Charts imported (chart.js): { [chartName]: version }.
     charts: {},
     // True once the server has sent a `links` list (links.js): it says where
@@ -40,10 +43,17 @@ export function createMap() {
 //                  (links.js); the user's, or the server's `links` extension.
 //   linkKeys     — { [targetKey]: { name?, cmd? } }, the links the room last
 //                  reported by key, for targets not yet on the map.
+//   exitStyles   — { [dir]: style }, how the exits it last reported are drawn
+//                  (mudstd extension `style`: road, trail, climb; path is
+//                  the default and isn't kept).
+//   elevation    — metres above the world's datum (not a floor; coords.z is).
+//   lat, lon     — degrees north and east.
 //   charted      — true for a room the server sent in a chart (chart.js) that
 //                  you haven't been in yet; cleared on arrival.
 // and fields only the user sets (edits.js): color, symbol, note.
-// Areas may carry `regions` — { [regionKey]: name }.
+// Areas may carry `regions` — { [regionKey]: name } — and `regionColors` —
+// { [regionKey]: "#rrggbb" }, the server's colour for a region (0.12.0; a
+// separate map so maps saved before it load as they are).
 export function addRoom(map, { key, fp, name, env, coords, areaId }) {
   const id = String(map.nextId++);
   const room = {
@@ -100,6 +110,21 @@ export function setTerrains(map, defs) {
   return changed;
 }
 
+// Merge mudstd.room.tags definitions ([{ id, label, glyph }]) into the map:
+// the new list in its order, then any held ones it doesn't name. True if
+// anything changed.
+export function setTagDefs(map, defs) {
+  const prev = Array.isArray(map.tagDefs) ? map.tagDefs : [];
+  const ids = new Set((defs || []).map((d) => d.id));
+  const next = [
+    ...(defs || []).map((d) => ({ id: d.id, label: d.label, glyph: d.glyph ?? null })),
+    ...prev.filter((d) => !ids.has(d.id)),
+  ];
+  const changed = JSON.stringify(next) !== JSON.stringify(prev);
+  map.tagDefs = next;
+  return changed;
+}
+
 // ── Areas ───────────────────────────────────────────────────────────────────
 
 export function addArea(map, { key, label }) {
@@ -146,6 +171,7 @@ export function fromJSON(str) {
         nextAreaId: parsed.nextAreaId || 1,
         currentId: parsed.currentId ?? null,
         terrains: parsed.terrains || {},
+        tagDefs: Array.isArray(parsed.tagDefs) ? parsed.tagDefs : [],
         charts: parsed.charts || {},
         serverWays: parsed.serverWays === true,
       };

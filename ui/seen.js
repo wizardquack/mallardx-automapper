@@ -26,6 +26,12 @@ export function seenFromFrame(frame) {
     tags: validTags(frame.tags),
     region: nonEmpty(frame.region),
     regionName: nonEmpty(frame.regionName),
+    regionColor: hexColor(frame.regionColor) || undefined,
+    // Metres above the world's datum (not a floor), and degrees north and
+    // east (extensions).
+    elevation: finiteOr(frame.elevation),
+    lat: finiteOr(frame.lat),
+    lon: finiteOr(frame.lon),
     // Ways that aren't exits ([{ toKey, name?, cmd? }], extension `links`).
     links: validLinks(frame.links),
   };
@@ -48,6 +54,17 @@ function validExits(list) {
   if (Array.isArray(list)) return list;
   if (list && typeof list === "object" && Object.keys(list).length === 0) return [];
   return undefined;
+}
+
+function finiteOr(v) {
+  return Number.isFinite(v) ? v : undefined;
+}
+
+// "#rrggbb" or "rrggbb" → "#rrggbb" (lower case), else null.
+export function hexColor(v) {
+  if (typeof v !== "string") return null;
+  const m = /^#?([0-9a-f]{6})$/i.exec(v);
+  return m ? "#" + m[1].toLowerCase() : null;
 }
 
 function nonEmpty(v) {
@@ -73,6 +90,40 @@ export function terrainsFromFrame(frame) {
     };
   }
   return out;
+}
+
+// mudstd.room.tags' list, as the adapter normalized it, → the map's ordered
+// [{ id, label, glyph }] (glyph null where there's none it can draw; see
+// validGlyph). Malformed entries and repeated ids are skipped.
+export function tagDefsFromFrame(frame) {
+  const out = [];
+  const ids = new Set();
+  const list = frame && Array.isArray(frame.list) ? frame.list : [];
+  for (const t of list) {
+    if (!t || typeof t.id !== "string" || !t.id || ids.has(t.id)) continue;
+    ids.add(t.id);
+    out.push({
+      id: t.id,
+      label: typeof t.label === "string" && t.label ? t.label : t.id,
+      glyph: validGlyph(t.glyph),
+    });
+  }
+  return out;
+}
+
+// A glyph the map can draw: one or two characters, not whitespace or control
+// characters, and nothing that defaults to emoji presentation. WebKit draws
+// those as colour emoji (see GLYPHS in annotate.js), which don't take the ink
+// colour; a text-presentation selector (U+FE0E) isn't honoured everywhere, so
+// rather than append one they're turned away. Else null.
+export function validGlyph(g) {
+  if (typeof g !== "string") return null;
+  const t = g.replace(/\uFE0E/g, "");
+  const chars = Array.from(t);
+  if (chars.length < 1 || chars.length > 2) return null;
+  if (/[\s\p{C}\uFE0F\u200D]/u.test(t)) return null;
+  if (/\p{Emoji_Presentation}/u.test(t)) return null;
+  return t;
 }
 
 export function validWrap(w) {

@@ -8,6 +8,7 @@ import {
 import { vector, reverse, isDirection, isCompass, ALL_DIRECTIONS } from "./directions.js";
 import { resolveArea, refreshAreaName } from "./area.js";
 import { applyServerLinks, linkLinksInto } from "./links.js";
+import { EXIT_STYLES } from "./annotate.js";
 
 export function resolveRoomSeen(map, seen, pendingDir, cfg) {
   // Non-GMCP worlds have no stable room id; they arrive with a fingerprint
@@ -83,6 +84,8 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
 // list replaces the room's (an empty one clears it), a region is set and its
 // name recorded on the area. A frame without them leaves the room alone. The
 // user's colour, symbol and note are never touched here.
+// A region's colour (regionColor) is kept with the area's regions, the latest
+// sent winning. Elevation and lat/lon are kept where sent, like the region.
 export function refreshAnnotations(map, room, seen) {
   if (Array.isArray(seen.tags)) {
     if (seen.tags.length) room.tags = seen.tags.slice();
@@ -94,7 +97,14 @@ export function refreshAnnotations(map, room, seen) {
     if (area) {
       area.regions = area.regions || {};
       area.regions[seen.region] = seen.regionName || area.regions[seen.region] || seen.region;
+      if (seen.regionColor) {
+        area.regionColors = area.regionColors || {};
+        area.regionColors[seen.region] = seen.regionColor;
+      }
     }
+  }
+  for (const f of ["elevation", "lat", "lon"]) {
+    if (Number.isFinite(seen[f])) room[f] = seen[f];
   }
 }
 
@@ -175,11 +185,18 @@ function inferDirection(map, prev, key) {
 // The exits that say they lead out of the room's area (mudstd extension
 // `area`, `areaName` on an exit) are remembered too, so a card can name where
 // they go before anyone's taken them (render.js).
+// So are their styles (mudstd extension `style`), for render.js to draw by.
 export function recordExitKeys(room, exits) {
   if (!Array.isArray(exits)) return;
   const byDir = {};
   const areas = {};
+  const styles = {};
   room.exitDirs = [...listedExits(exits).keys()];
+  for (const ex of exits) {
+    if (ex && isDirection(ex.dir) && EXIT_STYLES.includes(ex.style) && ex.style !== "path") styles[ex.dir] = ex.style;
+  }
+  if (Object.keys(styles).length) room.exitStyles = styles;
+  else delete room.exitStyles;
   for (const ex of exits) {
     if (!ex || !isDirection(ex.dir) || ex.toKey == null) continue;
     byDir[ex.dir] = String(ex.toKey);
