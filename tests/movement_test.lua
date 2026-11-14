@@ -59,5 +59,18 @@ check("exit area", out[1].area, "surface.tamsin")
 check("exit areaName", out[1].areaName, "Tamsin")
 check("no area on an exit within it", out[2].area, nil)
 
+-- An exit's style (mudstd extension): road, path, trail or climb.
+local st = movement.exits({
+  N = { id = "a", style = "road" }, S = { id = "b", style = "CLIMB" },
+  E = { id = "c", style = "highway" }, W = { id = "d" }, U = "bare",
+})
+local by = {}
+for _, e in ipairs(st) do by[e.dir] = e end
+check("exit style road", by.n.style, "road")
+check("exit style case-folded", by.s.style, "climb")
+check("unknown exit style dropped", by.e.style, nil)
+check("no exit style", by.w.style, nil)
+check("non-table exit survives", by.u and by.u.dir, "u")
+
 if failures > 0 then os.exit(1) end
 io.write("\nall movement tests passed\n")

@@ -83,6 +83,19 @@ function M.links(list)
   return out
 end
 
+-- A colour sent as "#rrggbb" or "rrggbb" -> "#rrggbb" (lower case), else nil.
+function M.color(v)
+  if type(v) ~= "string" then return nil end
+  local hex = v:match("^#?(%x%x%x%x%x%x)$")
+  return hex and ("#" .. hex:lower()) or nil
+end
+
+-- A finite number, else nil (extensions `elevation`, `lat`, `lon`).
+function M.number(v)
+  if finite(v) then return v end
+  return nil
+end
+
 -- mudstd.room.terrain: a list of { id, label, color?, tile_url? } -> a list of
 -- { id, label, color } with color as "#rrggbb" or nil. Entries without an id
 -- are dropped; a missing label falls back to the id.
@@ -93,12 +106,52 @@ function M.terrains(data)
     if type(t) == "table" then
       local id = str(t.id)
       if id then
-        local color = nil
-        if type(t.color) == "string" then
-          local hex = t.color:match("^#?(%x%x%x%x%x%x)$")
-          if hex then color = "#" .. hex:lower() end
-        end
-        out[#out + 1] = { id = id, label = str(t.label) or id, color = color }
+        out[#out + 1] = { id = id, label = str(t.label) or id, color = M.color(t.color) }
+      end
+    end
+  end
+  return out
+end
+
+-- A tag's glyph: one or two characters (UTF-8 code points), none of them
+-- whitespace or control characters, else nil. The panel also turns away
+-- emoji, which Lua can't tell.
+function M.glyph(v)
+  if type(v) ~= "string" or v == "" then return nil end
+  if v:find("[%z\1-\32\127]") then return nil end
+  -- Well-formed UTF-8 only: each code point a lead byte and its continuations.
+  local n, i, len = 0, 1, #v
+  while i <= len do
+    local b = v:byte(i)
+    local extra
+    if b < 0x80 then extra = 0
+    elseif b >= 0xC2 and b <= 0xDF then extra = 1
+    elseif b >= 0xE0 and b <= 0xEF then extra = 2
+    elseif b >= 0xF0 and b <= 0xF4 then extra = 3
+    else return nil end
+    for k = 1, extra do
+      local c = v:byte(i + k)
+      if not c or c < 0x80 or c > 0xBF then return nil end
+    end
+    i = i + 1 + extra
+    n = n + 1
+  end
+  if n < 1 or n > 2 then return nil end
+  return v
+end
+
+-- mudstd.room.tags: a list of { id, label?, glyph? } -> a list of
+-- { id, label, glyph }, in the server's order, with glyph nil where it isn't
+-- one or two characters. Entries without an id are dropped; a missing label
+-- falls back to the id.
+function M.tag_defs(data)
+  if type(data) ~= "table" then return {} end
+  local out = {}
+  for _, t in ipairs(data) do
+    if type(t) == "table" then
+      local id = str(t.id)
+      if id then
+        out[#out + 1] = { id = id, label = str(t.label) or id, glyph = M.glyph(t.glyph) }
       end
     end
   end
@@ -131,6 +184,12 @@ function M.normalize(data, with_exits)
     tags = M.tags(data),
     region = str(data.region),
     regionName = str(data.regionName),
+    regionColor = M.color(data.regionColor),
+    -- Height above the world's datum in metres (not a floor: coords.z is),
+    -- and degrees north and east (extensions).
+    elevation = M.number(data.elevation),
+    lat = M.number(data.lat),
+    lon = M.number(data.lon),
     -- Lifts, portals and the like: ways that aren't exits (extension).
     links = M.links(data.links),
   }

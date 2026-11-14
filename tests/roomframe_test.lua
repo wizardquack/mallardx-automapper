@@ -132,5 +132,58 @@ check("chart without rooms", roomframe.chart({ chart = "x" }), nil)
 check("chart non-table", roomframe.chart("x"), nil)
 check("chart bad part dropped", roomframe.chart({ rooms = {}, part = 1.5 }).part, nil)
 
+-- 0.12.0 extensions: elevation, lat/lon, regionColor.
+local rf = roomframe.normalize({ id = "h", elevation = -12.5, lat = 34.12, lon = -5.4,
+  region = "q", regionColor = "AABBCC" }, true)
+check("elevation", rf.elevation, -12.5)
+check("lat", rf.lat, 34.12)
+check("lon", rf.lon, -5.4)
+check("regionColor normalized", rf.regionColor, "#aabbcc")
+local bad = roomframe.normalize({ id = "h", elevation = "412", lat = 0 / 0, lon = math.huge, regionColor = "#abc" }, true)
+check("string elevation dropped", bad.elevation, nil)
+check("NaN lat dropped", bad.lat, nil)
+check("inf lon dropped", bad.lon, nil)
+check("short regionColor dropped", bad.regionColor, nil)
+check("regionColor with #", roomframe.color("#A0B1C2"), "#a0b1c2")
+check("zero elevation kept", roomframe.normalize({ id = "z", elevation = 0 }).elevation, 0)
+
+-- An exit's style survives into charts.
+local sc = roomframe.chart({ rooms = { { id = "s1", exits = { N = { id = "s2", style = "Road" }, S = { id = "s3", style = "motorway" } } } } })
+check("chart exit style", sc.rooms[1].exits[1].style, "road")
+check("chart unknown exit style dropped", sc.rooms[1].exits[2].style, nil)
+local cr = roomframe.chart({ rooms = { { id = "c1", elevation = 9, lat = 1, lon = 2, region = "r", regionColor = "#010203" } } })
+check("chart elevation", cr.rooms[1].elevation, 9)
+check("chart regionColor", cr.rooms[1].regionColor, "#010203")
+
+-- glyph: one or two characters, no whitespace or control, well-formed UTF-8.
+check("glyph ascii", roomframe.glyph("$"), "$")
+check("glyph two", roomframe.glyph("Ab"), "Ab")
+check("glyph multibyte", roomframe.glyph("\226\152\133"), "\226\152\133")          -- ★
+check("glyph two multibyte", roomframe.glyph("\226\152\133\226\152\133"), "\226\152\133\226\152\133")
+check("glyph astral", roomframe.glyph("\240\159\143\160"), "\240\159\143\160")   -- one code point (the panel turns emoji away)
+check("glyph three", roomframe.glyph("abc"), nil)
+check("glyph empty", roomframe.glyph(""), nil)
+check("glyph space", roomframe.glyph(" a"), nil)
+check("glyph control", roomframe.glyph("\n"), nil)
+check("glyph bad utf8", roomframe.glyph("\255"), nil)
+check("glyph truncated utf8", roomframe.glyph("\226\152"), nil)
+check("glyph number", roomframe.glyph(5), nil)
+
+-- mudstd.room.tags: [{ id, label, glyph }] in order.
+local td = roomframe.tag_defs({
+  { id = "smithy", label = "Smithy", glyph = "S" },
+  { id = "well" },
+  { label = "no id" },
+  { id = "mine", label = "Mine", glyph = "toolong" },
+})
+check("tag defs count", #td, 3)
+check("tag def order", td[1].id, "smithy")
+check("tag def label", td[1].label, "Smithy")
+check("tag def glyph", td[1].glyph, "S")
+check("tag def label falls back to id", td[2].label, "well")
+check("tag def no glyph", td[2].glyph, nil)
+check("tag def bad glyph dropped", td[3].glyph, nil)
+check("tag defs non-table", #roomframe.tag_defs("x"), 0)
+
 if failures > 0 then os.exit(1) end
 io.write("\nall roomframe tests passed\n")

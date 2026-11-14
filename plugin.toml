@@ -14,11 +14,12 @@ license = "MIT"
 # mudstd.room.info is the mudstandards.org room package (string ids + explicit
 # exits, plus optional coords/area/areaName/tags/region extensions) and, once
 # seen in a session, is used instead of room.info; mudstd.room.terrain defines
-# the terrains its rooms refer to (label + colour). Glob-matched, so
+# the terrains its rooms refer to (label + colour), and mudstd.room.tags the
+# tags (label + glyph). Glob-matched, so
 # "mudstd.room.info" grants exactly that message.
 # mudstd.map.rooms is a chart: many rooms in that same shape, sent at once for
 # a place the character knows without having walked it.
-gmcp_access = ["room.info", "mudstd.room.info", "mudstd.room.terrain", "mudstd.map.rooms"]
+gmcp_access = ["room.info", "mudstd.room.info", "mudstd.room.terrain", "mudstd.room.tags", "mudstd.map.rooms"]
 # Phase 2 speedwalk issues movement commands via mud.send (compass dirs, in, out).
 sends = true
 

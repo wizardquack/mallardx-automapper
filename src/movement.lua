@@ -20,6 +20,9 @@ local ALIASES = {
   ["in"] = "in", out = "out",
 }
 
+-- Exit styles the map draws (ui/render.js); "path" is the default.
+M.EXIT_STYLES = { road = true, path = true, trail = true, climb = true }
+
 function M.normalize(cmd)
   if type(cmd) ~= "string" then return nil end
   local trimmed = cmd:gsub("^%s+", ""):gsub("%s+$", ""):lower()
@@ -44,11 +47,16 @@ function M.exits(exits)
       if to_key ~= nil then e.toKey = tostring(to_key) end
       -- Where the exit leads out of the room's area (mudstd extension): that
       -- area's key and name, so a card can say where it goes before it's taken.
-      if ex.area ~= nil and (type(ex.area) == "string" or type(ex.area) == "number") then
+      if type(ex) == "table" and ex.area ~= nil and (type(ex.area) == "string" or type(ex.area) == "number") then
         e.area = tostring(ex.area)
         if type(ex.areaName) == "string" or type(ex.areaName) == "number" then
           e.areaName = tostring(ex.areaName)
         end
+      end
+      -- How the way is drawn (mudstd extension `style`): one of a fixed set;
+      -- anything else is the default, a path, so it's left off.
+      if type(ex) == "table" and type(ex.style) == "string" and M.EXIT_STYLES[ex.style:lower()] then
+        e.style = ex.style:lower()
       end
       out[#out + 1] = e
     end

@@ -12,6 +12,7 @@ local roomsource = require("roomsource")
 local panel = mud.panel("map")
 local last_room = nil  -- replayed to the iframe on (re)mount
 local last_terrains = nil  -- likewise the last mudstd.room.terrain list
+local last_tags = nil  -- and the last mudstd.room.tags list
 local charts = {}  -- this session's mudstd.map.rooms, replayed on (re)mount
 local learn_handle = nil  -- catch-all trigger handle while '/map learn' is on
 
@@ -40,6 +41,13 @@ end)
 gmcp.on("mudstd.room.terrain", function(_pkg, data)
   last_terrains = roomframe.terrains(data)
   panel:post("terrains", { list = last_terrains })
+end)
+
+-- mudstd.room.tags: the server's tag definitions (label + glyph), which room
+-- frames' `tags` refer to by id. Sent once per session, like the terrains.
+gmcp.on("mudstd.room.tags", function(_pkg, data)
+  last_tags = roomframe.tag_defs(data)
+  panel:post("tag_defs", { list = last_tags })
 end)
 
 -- mudstd.map.rooms: a chart, many rooms the character knows without walking
@@ -188,6 +196,7 @@ panel:on_message("ready", function()
     linkOffers = link_offers(),
   })
   if last_terrains then panel:post("terrains", { list = last_terrains }) end
+  if last_tags then panel:post("tag_defs", { list = last_tags }) end
   for _, chart in ipairs(charts) do panel:post("room_chart", chart) end
   if last_room then panel:post("room_seen", last_room) end
 end)
