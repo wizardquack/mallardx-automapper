@@ -172,7 +172,7 @@ body {
 .learn-hint { color: var(--fg-muted, #94a3b8); margin: 4px 0 0; }
 .learn-empty { color: var(--fg-muted, #6b7280); padding: 10px; text-align: center; }
 
-/* Header toggles (labels, legend): lit when on. */
+/* Header toggles (height shading, labels, legend): lit when on. */
 .map-header button.labels-toggle { width: auto; padding: 0 5px; font-size: 11px; }
 .map-header button.on { border-color: var(--accent, #38bdf8); color: var(--accent, #38bdf8); }
 
@@ -196,5 +196,7 @@ body {
   border: 1px solid var(--border, #374151);
 }
 .legend-region { opacity: 0.6; }
-.legend-glyph { flex: none; width: 12px; text-align: center; font-weight: bold; }
+.legend-glyph { flex: none; min-width: 12px; text-align: center; font-weight: bold; }
+.legend-way { flex: none; }
+.map-header button[hidden] { display: none; }
 .legend-empty { max-width: 220px; white-space: normal; color: var(--fg-muted, #9ca3af); }

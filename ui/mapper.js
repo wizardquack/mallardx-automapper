@@ -3,7 +3,7 @@
 // Mallard's SDK shim.
 
 import {
-  createMap, currentRoom, toJSON, fromJSON, listAreas, getRoom, getArea, setCurrent, setTerrains,
+  createMap, currentRoom, toJSON, fromJSON, listAreas, getRoom, getArea, setCurrent, setTerrains, setTagDefs,
 } from "./graph.js";
 import { renameRoom, deleteRoom, mergeRooms, addExit, deleteExit, setOneWay,
   moveRoom, isCellOccupied, moveToArea, computePocket, movePocket,
@@ -14,10 +14,10 @@ import { createHistory } from "./history.js";
 import { roomMenuModel, selectionMenuModel } from "./editmenu.js";
 import { addArea } from "./graph.js";
 import { resolveRoomSeen, contradicts } from "./identity.js";
-import { seenFromFrame, terrainsFromFrame } from "./seen.js";
+import { seenFromFrame, terrainsFromFrame, tagDefsFromFrame } from "./seen.js";
 import { importChart } from "./chart.js";
 import { fingerprint, exitDirections, suggestNamePattern, suggestExitsPattern } from "./fingerprint.js";
-import { computeLayout, draw, roomsInRect, cardAt, DEFAULT_COLORS } from "./render.js";
+import { computeLayout, draw, roomsInRect, cardAt, drawWaySample, DEFAULT_COLORS } from "./render.js";
 import { findPath } from "./pathfind.js";
 import { matchRooms, resolveDestination } from "./search.js";
 import { createWalk } from "./walk.js";
@@ -53,6 +53,7 @@ let lastRoomSize = 0;
 let lastCards = [];         // stub cards last drawn (render.js): where an exit leads off the view
 let pocketPreview = null;   // { ids:Set<string>, areaId:string } while previewing
 let pendingTerrains = null; // mudstd.room.terrain received before the map loaded
+let pendingTagDefs = null;  // mudstd.room.tags received before the map loaded
 let pendingCharts = [];     // mudstd.map.rooms received before the map loaded
 let sawRoom = false;        // a room has arrived since the map loaded or we connected
 let selection = new Set();  // room ids picked with shift-click / shift-drag
@@ -69,6 +70,7 @@ function setPref(name, on) {
 }
 let showLabels = pref("labels", true);
 let showLegend = pref("legend", false);
+let showShading = pref("shading", true);
 
 // ── Persistence (debounced) ────────────────────────────────────────────────
 let persistTimer = null;
@@ -168,6 +170,7 @@ function redraw() {
     viewedZ,
     path: highlightPath,
     anchorId: focusAnchorId,
+    shade: showShading,
   });
   lastLayout = layout;
   lastRoomSize = Math.max(8, ZOOMS[zoomIdx] * 0.5);
@@ -185,12 +188,16 @@ function redraw() {
 const $legend = document.querySelector(".legend");
 const $legendBtn = document.querySelector(".legend-toggle");
 const $labelsBtn = document.querySelector(".labels-toggle");
+const $shadeBtn = document.querySelector(".shade-toggle");
 function renderLegend() {
   $legend.hidden = !showLegend;
   $legendBtn.classList.toggle("on", showLegend);
   $labelsBtn.classList.toggle("on", showLabels);
+  // Height shading only means something where a room in view has an elevation.
+  $shadeBtn.hidden = !lastLayout.elevation;
+  $shadeBtn.classList.toggle("on", showShading);
   if (!showLegend) return;
-  const model = legendModel(map, lastLayout.rooms.map((r) => map.rooms[r.id]).filter(Boolean));
+  const model = legendModel(map, lastLayout.rooms.map((r) => map.rooms[r.id]).filter(Boolean), lastLayout.exits || []);
   $legend.innerHTML = "";
   const section = (title, items) => {
     if (!items.length) return;
@@ -217,6 +224,7 @@ function renderLegend() {
     g.tags.join(", "),
   ]));
   section("Regions", model.regions.map((r) => [swatch(r.color, "legend-swatch legend-region"), r.name]));
+  section("Ways", model.ways.map((w) => [waySample(w.style), w.label]));
   if (!$legend.childElementCount) {
     $legend.appendChild(Object.assign(document.createElement("div"), {
       className: "legend-empty",
@@ -226,6 +234,20 @@ function renderLegend() {
 }
 $legendBtn.addEventListener("click", () => { showLegend = !showLegend; setPref("legend", showLegend); redraw(); });
 $labelsBtn.addEventListener("click", () => { showLabels = !showLabels; setPref("labels", showLabels); redraw(); });
+$shadeBtn.addEventListener("click", () => { showShading = !showShading; setPref("shading", showShading); redraw(); });
+
+// A way's style drawn small, as the map draws it (render.js), for the legend.
+function waySample(style) {
+  const w = 28, h = 12, dpr = window.devicePixelRatio || 1;
+  const cv = document.createElement("canvas");
+  cv.className = "legend-way";
+  cv.width = w * dpr; cv.height = h * dpr;
+  cv.style.width = `${w}px`; cv.style.height = `${h}px`;
+  const g = cv.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawWaySample(g, style, 3, w - 3, h / 2, themeColors().exit);
+  return cv;
+}
 
 // ── Walk controller ──────────────────────────────────────────────────────────
 function startWalkTimer() {
@@ -655,6 +677,7 @@ panel.on("load", (frame) => {
   loaded = true;
   sawRoom = false; hideLinkOffer(); moves.clear();
   if (pendingTerrains) { setTerrains(map, pendingTerrains); pendingTerrains = null; }
+  if (pendingTagDefs) { setTagDefs(map, pendingTagDefs); pendingTagDefs = null; }
   for (const frame of pendingCharts) applyChart(frame);
   pendingCharts = [];
   stopWalkTimer(); walk = null; highlightPath = null;
@@ -719,6 +742,14 @@ panel.on("terrains", (frame) => {
   const defs = terrainsFromFrame(frame);
   if (!loaded) { pendingTerrains = { ...(pendingTerrains || {}), ...defs }; return; }
   if (setTerrains(map, defs)) { redraw(); schedulePersist(); }
+});
+
+// mudstd.room.tags: the server's tag labels and glyphs, in its order. Kept in
+// the map like the terrains.
+panel.on("tag_defs", (frame) => {
+  const defs = tagDefsFromFrame(frame);
+  if (!loaded) { pendingTagDefs = defs; return; }
+  if (setTagDefs(map, defs)) { redraw(); schedulePersist(); }
 });
 
 // mudstd.map.rooms: a chart, many rooms at once (chart.js). Nobody moves, so
