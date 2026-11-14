@@ -196,6 +196,11 @@ body {
   border: 1px solid var(--border, #374151);
 }
 .legend-region { opacity: 0.6; }
+.legend-ground { opacity: 0.45; }
+.legend-contour {
+  flex: none; display: inline-block; width: 12px; height: 0;
+  border-top: 1px solid var(--fg, #e5e7eb); opacity: 0.45;
+}
 .legend-glyph { flex: none; min-width: 12px; text-align: center; font-weight: bold; }
 .legend-way { flex: none; }
 .map-header button[hidden] { display: none; }

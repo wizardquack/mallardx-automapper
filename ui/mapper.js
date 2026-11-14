@@ -8,11 +8,12 @@ import {
 import { renameRoom, deleteRoom, mergeRooms, addExit, deleteExit, setOneWay,
   moveRoom, isCellOccupied, moveToArea, computePocket, movePocket,
   setRoomColor, setRoomSymbol, setRoomNote, editEach, moveRooms } from "./edits.js";
-import { legendModel, tooltipSpec, parseColor } from "./annotate.js";
+import { legendModel, tooltipSpec, parseColor, fillColor, terrainLabel } from "./annotate.js";
 import { addLink, deleteLink, setLinkOneWay, setLinkField, linksOf, hasWay, offersLinks } from "./links.js";
 import { createHistory } from "./history.js";
 import { roomMenuModel, selectionMenuModel } from "./editmenu.js";
 import { addArea } from "./graph.js";
+import { decodePatch, mergePatch, areasWithRooms, clearEmptiedRelief, reliefArea } from "./relief.js";
 import { resolveRoomSeen, contradicts } from "./identity.js";
 import { seenFromFrame, terrainsFromFrame, tagDefsFromFrame } from "./seen.js";
 import { importChart } from "./chart.js";
@@ -55,6 +56,8 @@ let pocketPreview = null;   // { ids:Set<string>, areaId:string } while previewi
 let pendingTerrains = null; // mudstd.room.terrain received before the map loaded
 let pendingTagDefs = null;  // mudstd.room.tags received before the map loaded
 let pendingCharts = [];     // mudstd.map.rooms received before the map loaded
+let pendingRelief = [];     // mudstd.relief.patch received before the map loaded
+let lastRelief = null;      // what the relief last drawn was (render.js draw): for the legend
 let sawRoom = false;        // a room has arrived since the map loaded or we connected
 let selection = new Set();  // room ids picked with shift-click / shift-drag
 let marquee = null;         // { x0, y0, x1, y1 } canvas px while shift-dragging a box
@@ -85,8 +88,11 @@ function schedulePersist() {
 // Every user edit goes through here: snapshot the pre-edit map, run the
 // mutation, and (only if it changed something) persist + redraw. Keeps undo,
 // persistence, and rendering uniform.
+// Snapshots leave the relief grids out (graph.js toJSON): edits don't change
+// them, bar deleting an area's last room, and the live grids carry across an
+// undo or redo.
 function applyEdit(fn) {
-  const before = toJSON(map);
+  const before = toJSON(map, { relief: false });
   const ok = fn();
   if (!ok) return false;
   history.push(before);
@@ -96,16 +102,22 @@ function applyEdit(fn) {
   return true;
 }
 
+function restoreSnapshot(json) {
+  const relief = map.relief;
+  map = fromJSON(json);
+  map.relief = relief;
+}
+
 function doUndo() {
-  const restored = history.undo(toJSON(map));
+  const restored = history.undo(toJSON(map, { relief: false }));
   if (restored == null) return;
-  map = fromJSON(restored);
+  restoreSnapshot(restored);
   focusCurrentArea(); rebuildAreaSelect(); redraw(); schedulePersist();
 }
 function doRedo() {
-  const restored = history.redo(toJSON(map));
+  const restored = history.redo(toJSON(map, { relief: false }));
   if (restored == null) return;
-  map = fromJSON(restored);
+  restoreSnapshot(restored);
   focusCurrentArea(); rebuildAreaSelect(); redraw(); schedulePersist();
 }
 
@@ -174,7 +186,9 @@ function redraw() {
   });
   lastLayout = layout;
   lastRoomSize = Math.max(8, ZOOMS[zoomIdx] * 0.5);
-  lastCards = draw(ctx, layout, { roomSize: lastRoomSize, colors: themeColors(), labels: showLabels }).cards;
+  const drawn = draw(ctx, layout, { roomSize: lastRoomSize, colors: themeColors(), labels: showLabels, size: { width: cw, height: ch } });
+  lastCards = drawn.cards;
+  lastRelief = drawn.relief;
   for (const id of selection) if (!map.rooms[id]) selection.delete(id);
   drawSelection();
   const cur = currentRoom(map);
@@ -193,8 +207,9 @@ function renderLegend() {
   $legend.hidden = !showLegend;
   $legendBtn.classList.toggle("on", showLegend);
   $labelsBtn.classList.toggle("on", showLabels);
-  // Height shading only means something where a room in view has an elevation.
-  $shadeBtn.hidden = !lastLayout.elevation;
+  // Height shading only means something where a room in view has an
+  // elevation, or the floor has a relief grid.
+  $shadeBtn.hidden = !lastLayout.elevation && !(lastLayout.relief && lastLayout.relief.grid);
   $shadeBtn.classList.toggle("on", showShading);
   if (!showLegend) return;
   const model = legendModel(map, lastLayout.rooms.map((r) => map.rooms[r.id]).filter(Boolean), lastLayout.exits || []);
@@ -225,6 +240,7 @@ function renderLegend() {
   ]));
   section("Regions", model.regions.map((r) => [swatch(r.color, "legend-swatch legend-region"), r.name]));
   section("Ways", model.ways.map((w) => [waySample(w.style), w.label]));
+  if (lastRelief && showShading) section("Relief", reliefLegend(lastRelief, swatch));
   if (!$legend.childElementCount) {
     $legend.appendChild(Object.assign(document.createElement("div"), {
       className: "legend-empty",
@@ -235,6 +251,26 @@ function renderLegend() {
 $legendBtn.addEventListener("click", () => { showLegend = !showLegend; setPref("legend", showLegend); redraw(); });
 $labelsBtn.addEventListener("click", () => { showLabels = !showLabels; setPref("labels", showLabels); redraw(); });
 $shadeBtn.addEventListener("click", () => { showShading = !showShading; setPref("shading", showShading); redraw(); });
+
+// The legend's relief rows: the contour interval (and whether the heights are
+// estimated from rooms), then the ground colours in view that no room's
+// terrain already explains.
+function reliefLegend(info, swatch) {
+  const rows = [];
+  const line = Object.assign(document.createElement("span"), { className: "legend-contour" });
+  if (info.interval) {
+    const est = !info.estimated ? "" : info.measured ? " (some estimated from rooms)" : " (estimated from rooms)";
+    rows.push([line, `Contours every ${info.interval} m${est}`]);
+  } else {
+    rows.push([line, info.estimated ? "Shading estimated from rooms' heights" : "Hill shading"]);
+  }
+  const listed = new Set(lastLayout.rooms.map((r) => map.rooms[r.id]).filter((r) => r && !r.color).map((r) => String(r.env)));
+  for (const id of info.grounds) {
+    if (listed.has(id)) continue;
+    rows.push([swatch(fillColor(map, { env: id }), "legend-swatch legend-ground"), `${terrainLabel(map, id)} (ground)`]);
+  }
+  return rows;
+}
 
 // A way's style drawn small, as the map draws it (render.js), for the legend.
 function waySample(style) {
@@ -449,7 +485,7 @@ async function handleSelectionAction(action, arg) {
     }
   } else if (action === "selDelete") {
     const ok = await inlineConfirm(`Delete ${ids.length} rooms?`);
-    if (ok && applyEdit(() => editEach(map, ids, deleteRoom))) { clearSelection(); redraw(); }
+    if (ok && applyEdit(() => deleteRooms(ids))) { clearSelection(); redraw(); }
   }
 }
 
@@ -504,7 +540,7 @@ async function handleMenuAction(action, arg, roomId) {
     applyEdit(() => { setCurrent(map, roomId); return true; });
   } else if (action === "deleteRoom") {
     const ok = await inlineConfirm("Delete this room?");
-    if (ok) applyEdit(() => deleteRoom(map, roomId));
+    if (ok) applyEdit(() => deleteRooms([roomId]));
   } else if (action === "merge") {
     pendingMode = { kind: "merge", fromId: roomId };
     panel.post("notify", { text: "Click the room to merge this one INTO (Esc to cancel)." });
@@ -668,6 +704,14 @@ panel.on("learn_line", (frame) => {
   if (learnActive && frame && frame.text != null) addLearnLine(frame.text);
 });
 
+// Delete rooms; an area left with none forgets its relief grids too.
+function deleteRooms(ids) {
+  const had = areasWithRooms(map);
+  const ok = ids.length === 1 ? deleteRoom(map, ids[0]) : editEach(map, ids, deleteRoom);
+  if (ok) clearEmptiedRelief(map, had);
+  return ok;
+}
+
 // ── Host messages ────────────────────────────────────────────────────────────
 panel.on("load", (frame) => {
   map = frame && frame.json ? fromJSON(frame.json) : createMap();
@@ -680,6 +724,8 @@ panel.on("load", (frame) => {
   if (pendingTagDefs) { setTagDefs(map, pendingTagDefs); pendingTagDefs = null; }
   for (const frame of pendingCharts) applyChart(frame);
   pendingCharts = [];
+  for (const frame of pendingRelief) applyRelief(frame);
+  pendingRelief = [];
   stopWalkTimer(); walk = null; highlightPath = null;
   focusCurrentArea();
   rebuildAreaSelect();
@@ -773,6 +819,40 @@ panel.on("room_chart", (frame) => {
   if (!applyChart(frame)) return;
   rebuildAreaSelect();
   redraw();
+  schedulePersist();
+});
+
+// mudstd.relief.patch: a rectangle of an area's ground grid (relief.js),
+// merged into the map and saved with it. A login refill can be dozens at
+// once, so the repaint waits for the next frame.
+function applyRelief(frame) {
+  const p = decodePatch(frame);
+  if (!p) return false;
+  return mergePatch(map, p, areaWrapX(p.area));
+}
+
+// Where the rooms of the area with frames' key `tag` say x comes round.
+function areaWrapX(tag) {
+  for (const id of Object.keys(map.rooms)) {
+    const r = map.rooms[id];
+    if (!r.wrapX) continue;
+    if (reliefArea(map.areas[r.areaId]) === tag) return r.wrapX;
+  }
+  return null;
+}
+
+let redrawQueued = false;
+function redrawSoon() {
+  if (redrawQueued) return;
+  redrawQueued = true;
+  const run = () => { redrawQueued = false; redraw(); };
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(run); else setTimeout(run, 0);
+}
+
+panel.on("relief_patch", (frame) => {
+  if (!loaded) { pendingRelief.push(frame); return; }
+  if (!applyRelief(frame)) return;
+  redrawSoon();
   schedulePersist();
 });
 
