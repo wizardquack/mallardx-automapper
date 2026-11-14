@@ -3,8 +3,10 @@
 // no DOM, no host APIs (render.js paints, mapper.js wires the host).
 //
 // Server-fed fields (see seen.js / identity.js): env (the terrain id), tags,
-// region. User-set fields (edits.js): color, symbol, note. Server terrain
-// definitions live in map.terrains, region names in area.regions.
+// region, elevation, lat/lon, exitStyles. User-set fields (edits.js): color,
+// symbol, note. Server terrain definitions live in map.terrains, tag
+// definitions in map.tagDefs, region names in area.regions and their colours
+// in area.regionColors.
 
 import { floorNeighbours } from "./floors.js";
 import { linksOf, linkLabel } from "./links.js";
@@ -119,13 +121,33 @@ export function glyphForTag(tag) {
   return null;
 }
 
-// What's drawn in the room: the user's symbol, else the first glyph among
-// the room's tags in GLYPHS' order (so a lift lobby with a charger is a lift).
-export function roomGlyph(room) {
+// The server's definition (mudstd.room.tags) for a room's tag, matched by
+// lookup word, or null.
+export function tagDef(map, tag) {
+  const defs = map && Array.isArray(map.tagDefs) ? map.tagDefs : [];
+  if (defs.length === 0) return null;
+  const w = tagWord(tag);
+  return defs.find((d) => tagWord(d.id) === w) || null;
+}
+
+// What a tag is called: the server's label where it defines the tag, else the
+// tag as sent.
+export function tagLabel(map, tag) {
+  const def = tagDef(map, tag);
+  return def ? def.label : String(tag);
+}
+
+// What's drawn in the room: the user's symbol; else the glyph of the first
+// tag the server defines with one (mudstd.room.tags, in its order) that the
+// room has; else the first built-in glyph among the room's tags in GLYPHS'
+// order (so a lift lobby with a charger is a lift); else none.
+export function roomGlyph(room, map = null) {
   if (room.symbol) return room.symbol;
   const tags = Array.isArray(room.tags) ? room.tags : [];
   if (tags.length === 0) return null;
   const words = new Set(tags.map(tagWord));
+  const defs = map && Array.isArray(map.tagDefs) ? map.tagDefs : [];
+  for (const d of defs) if (d.glyph && words.has(tagWord(d.id))) return d.glyph;
   for (const [glyph, keys] of GLYPHS) if (keys.some((k) => words.has(k))) return glyph;
   return null;
 }
@@ -137,14 +159,87 @@ export function regionHue(key) {
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
   return Math.round((h * 137.508) % 360);
 }
-export function regionColor(key, alpha = 1) {
+// A region's tint: the server's colour for it (regionColor, "#rrggbb") at
+// `alpha` where there is one, else the hue hashed from its key.
+export function regionColor(key, alpha = 1, color = null) {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(color || ""));
+  if (m) {
+    const n = parseInt(m[1], 16);
+    return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+  }
   return `hsla(${regionHue(key)}, 55%, 55%, ${alpha})`;
+}
+
+// The server's colour for a region of an area, or null.
+export function areaRegionColor(map, areaId, key) {
+  const area = areaId != null && map.areas ? map.areas[areaId] : null;
+  return (area && area.regionColors && area.regionColors[key]) || null;
 }
 
 export function regionName(map, room) {
   if (!room.region) return "";
   const area = room.areaId != null ? map.areas[room.areaId] : null;
   return (area && area.regions && area.regions[room.region]) || room.region;
+}
+
+// ── Height shading ───────────────────────────────────────────────────────────
+// Rooms with an elevation are lightened (higher) or darkened (lower) by where
+// they sit between the lowest and highest rooms in view. Subtle, so the
+// terrain colour stays the main signal; and over a span of at least
+// SHADE_MIN_SPAN metres, so a nearly flat area isn't shaded hard.
+export const SHADE_STRENGTH = 0.18;
+export const SHADE_MIN_SPAN = 100;
+
+// The lowest and highest elevation among `rooms`, or null where none has one.
+export function elevationRange(rooms) {
+  let min = Infinity, max = -Infinity;
+  for (const r of rooms) {
+    if (!Number.isFinite(r.elevation)) continue;
+    if (r.elevation < min) min = r.elevation;
+    if (r.elevation > max) max = r.elevation;
+  }
+  return min === Infinity ? null : { min, max };
+}
+
+// How far to shade a room at `elevation`, from -1 (darkest) to 1 (lightest),
+// within `range`; the range is widened about its middle to the minimum span.
+// 0 for a room with no elevation, or no range.
+export function shadeAmount(elevation, range, minSpan = SHADE_MIN_SPAN) {
+  if (!range || !Number.isFinite(elevation)) return 0;
+  const span = Math.max(range.max - range.min, minSpan);
+  if (!(span > 0)) return 0;
+  const mid = (range.min + range.max) / 2;
+  return Math.max(-1, Math.min(1, ((elevation - mid) / span) * 2));
+}
+
+// A #rrggbb colour lightened toward white (t > 0) or darkened toward black
+// (t < 0) by |t| × strength. Anything not #rrggbb comes back as it is.
+export function shadeColor(hex, t, strength = SHADE_STRENGTH) {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(hex || ""));
+  if (!m || !t) return hex;
+  const k = Math.max(-1, Math.min(1, t)) * strength;
+  const n = parseInt(m[1], 16);
+  const mix = (c) => Math.round(k > 0 ? c + (255 - c) * k : c * (1 + k));
+  return "#" + [n >> 16, (n >> 8) & 255, n & 255].map((c) => mix(c).toString(16).padStart(2, "0")).join("");
+}
+
+// ── Exit styles ──────────────────────────────────────────────────────────────
+// How a way between rooms is drawn (mudstd extension `style` on an exit):
+// path is the plain line and the default; the rest by priority, strongest
+// last, for a line whose two ends disagree.
+export const EXIT_STYLES = ["path", "trail", "road", "climb"];
+export const EXIT_STYLE_LABELS = { road: "Road", path: "Path", trail: "Trail", climb: "Climb" };
+
+// The style a room's exit by `dir` is drawn in.
+export function exitStyle(room, dir) {
+  const s = room && room.exitStyles ? room.exitStyles[dir] : null;
+  return EXIT_STYLES.includes(s) ? s : "path";
+}
+
+// The stronger of two styles: climb > road > trail > path.
+export function strongerStyle(a, b) {
+  const ra = EXIT_STYLES.indexOf(a), rb = EXIT_STYLES.indexOf(b);
+  return (rb > ra ? b : a) || "path";
 }
 
 // Black or white text, whichever reads on a #rrggbb fill.
@@ -170,10 +265,23 @@ export function parseColor(s) {
   return null;
 }
 
+// A tag's glyph and what to call it in the legend: the server's glyph and
+// label where it defines the tag with a glyph, else the built-in glyph and
+// the tag's word. Null for a tag with neither glyph.
+function tagGlyph(map, tag) {
+  const def = tagDef(map, tag);
+  if (def && def.glyph) return { glyph: def.glyph, label: def.label, game: true };
+  const g = glyphForTag(tag);
+  if (!g) return null;
+  return { glyph: g, label: def ? def.label : tagWord(tag).replace(/_/g, " "), game: false };
+}
+
 // What the legend lists for a set of rooms (the ones in view): terrains by
-// fill, glyphs with the tags behind them, and regions. User colours and
-// symbols aren't listed — they mean what the user says they mean.
-export function legendModel(map, rooms) {
+// fill, glyphs with the tags behind them (the server's glyphs first, in its
+// order, then the built-in ones), regions, and the ways (exit styles) among
+// `exits` (render.js layout exits) when any isn't a plain path. User colours
+// and symbols aren't listed — they mean what the user says they mean.
+export function legendModel(map, rooms, exits = []) {
   const terrains = new Map(), glyphs = new Map(), regions = new Map();
   for (const r of rooms) {
     if (!r.color && r.env != null && r.env !== "") {
@@ -184,22 +292,44 @@ export function legendModel(map, rooms) {
     }
     if (!r.symbol && Array.isArray(r.tags)) {
       for (const t of r.tags) {
-        const g = glyphForTag(t);
+        const g = tagGlyph(map, t);
         if (!g) continue;
-        if (!glyphs.has(g)) glyphs.set(g, new Set());
-        glyphs.get(g).add(tagWord(t).replace(/_/g, " "));
+        if (!glyphs.has(g.glyph)) glyphs.set(g.glyph, { tags: new Set(), game: false });
+        const entry = glyphs.get(g.glyph);
+        entry.tags.add(g.label);
+        entry.game = entry.game || g.game;
       }
     }
     if (r.region && !regions.has(r.region)) {
-      regions.set(r.region, { name: regionName(map, r), color: regionColor(r.region) });
+      const color = areaRegionColor(map, r.areaId, r.region);
+      regions.set(r.region, { name: regionName(map, r), color: regionColor(r.region, 1, color) });
     }
   }
   const byLabel = (a, b) => a.label.localeCompare(b.label);
+  // Glyph order: the server's, by its list; then the built-in table's.
+  const order = [
+    ...(Array.isArray(map.tagDefs) ? map.tagDefs.map((d) => d.glyph).filter(Boolean) : []),
+    ...GLYPHS.map(([g]) => g),
+  ];
+  const rank = (g) => { const i = order.indexOf(g); return i < 0 ? order.length : i; };
+  const styles = new Set((exits || []).map((e) => e.style || "path"));
+  const ways = [...styles].some((st) => st !== "path")
+    ? ["road", "path", "trail", "climb"].filter((st) => styles.has(st)).map((style) => ({ style, label: EXIT_STYLE_LABELS[style] }))
+    : [];
   return {
     terrains: [...terrains.values()].sort(byLabel),
-    glyphs: GLYPHS.filter(([g]) => glyphs.has(g)).map(([g]) => ({ glyph: g, tags: [...glyphs.get(g)] })),
+    glyphs: [...glyphs.keys()].sort((a, b) => rank(a) - rank(b))
+      .map((g) => ({ glyph: g, tags: [...glyphs.get(g).tags], game: glyphs.get(g).game })),
     regions: [...regions.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    ways,
   };
+}
+
+// "34.12°N 5.40°W" for a latitude and longitude in degrees, or "" without both.
+export function formatLatLon(lat, lon) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "";
+  const part = (v, pos, neg) => `${Math.abs(v).toFixed(2)}°${v < 0 ? neg : pos}`;
+  return `${part(lat, "N", "S")} ${part(lon, "E", "W")}`;
 }
 
 // The host tooltip spec ({ title, body, rows }) for a room's hover card.
@@ -210,8 +340,11 @@ export function tooltipSpec(map, room) {
   if (region) rows.push({ label: "Region", value: region });
   const terrain = terrainLabel(map, room.env);
   if (terrain) rows.push({ label: "Terrain", value: terrain });
+  if (Number.isFinite(room.elevation)) rows.push({ label: "Elevation", value: `${Math.round(room.elevation)} m` });
+  const position = formatLatLon(room.lat, room.lon);
+  if (position) rows.push({ label: "Position", value: position });
   const tags = Array.isArray(room.tags) ? room.tags.map(String).filter(Boolean) : [];
-  if (tags.length) rows.push({ label: "Here", value: tags.join(", ") });
+  if (tags.length) rows.push({ label: "Here", value: tags.map((t) => tagLabel(map, t)).join(", ") });
   // Up and down by exit; links (a lift's stops among them) on their own row.
   const floors = floorNeighbours(map, room).filter((f) => f.via === "exit");
   const names = (up) => floors.filter((f) => f.up === up)

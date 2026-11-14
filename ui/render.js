@@ -5,7 +5,10 @@
 import { isCompass, vector, reverse } from "./directions.js";
 import { floorMarks } from "./floors.js";
 import { getAreaByKey } from "./graph.js";
-import { fillColor, roomGlyph, regionColor, regionName, inkOn, envColor } from "./annotate.js";
+import {
+  fillColor, roomGlyph, regionColor, regionName, inkOn, envColor, areaRegionColor,
+  elevationRange, shadeAmount, shadeColor, exitStyle, strongerStyle,
+} from "./annotate.js";
 
 export { envColor };
 
@@ -15,7 +18,10 @@ export const NAME_LABEL_MIN_SCALE = 44;
 export const REGION_LABEL_MIN_SCALE = 24;
 export const GLYPH_MIN_ROOM = 12;
 
-export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path = null, anchorId = null }) {
+// `shade` lightens or darkens each room with an elevation by where it sits
+// between the lowest and highest rooms on the floor drawn (annotate.js); the
+// layout's `elevation` is that range, or null where no room on it has one.
+export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path = null, anchorId = null, shade = true }) {
   const cur = map.currentId != null ? map.rooms[map.currentId] : null;
   const viewArea = areaId != null ? areaId : (cur ? cur.areaId : null);
 
@@ -32,17 +38,21 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       .sort((a, b) => Number(a) - Number(b));
     anchor = ids.length ? map.rooms[ids[0]] : null;
   }
-  if (!anchor) return { rooms: [], exits: [], stubs: [], tints: [], regions: [], scale };
+  if (!anchor) return { rooms: [], exits: [], stubs: [], tints: [], regions: [], elevation: null, scale };
   const z = viewedZ != null ? viewedZ : anchor.coords.z;
 
   const pathRooms = path && path.rooms ? path.rooms : null;
   const pathEdges = path && path.edges ? path.edges : null;
 
+  const onFloor = Object.keys(map.rooms).map((id) => map.rooms[id])
+    .filter((r) => r.areaId === viewArea && r.coords.z === z);
+  // Worked out once per layout, not per room drawn.
+  const elevation = elevationRange(onFloor);
   const rooms = [];
   const placed = {};
-  for (const id of Object.keys(map.rooms)) {
-    const r = map.rooms[id];
-    if (r.areaId !== viewArea || r.coords.z !== z) continue;
+  for (const r of onFloor) {
+    const id = r.id;
+    const base = fillColor(map, r);
     const cell = viewCell(r, anchor);
     const px = cx + (cell.x - anchor.coords.x) * scale;
     const py = cy + (cell.y - anchor.coords.y) * scale;
@@ -56,8 +66,9 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       onPath: pathRooms ? pathRooms.has(id) : false,
       env: r.env,
       name: r.name || "",
-      fill: fillColor(map, r),
-      glyph: roomGlyph(r),
+      // The glyph's ink is worked out from this, so it reads on the shade.
+      fill: shade && elevation ? shadeColor(base, shadeAmount(r.elevation, elevation)) : base,
+      glyph: roomGlyph(r, map),
       region: r.region || null,
       up: marks.up,
       down: marks.down,
@@ -90,16 +101,19 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       if (back) drawn.add(`${to}|${back}`);
       const a = placed[id], b = placed[to];
       const onPath = pathEdges ? pathEdges.has(key) : false;
+      // Drawn once, so where its ends disagree the stronger style shows.
+      const style = strongerStyle(exitStyle(r, dir), back ? exitStyle(map.rooms[to], back) : "path");
+      const styled = style === "path" ? {} : { style };
       const step = wrapStep(a, b);
       if (step == null) {
         // With no way back at all it's one way, drawn with an arrow into `to`.
         const oneWay = !back && !leadsTo(map.rooms[to], id);
-        exits.push({ x1: a.px, y1: a.py, x2: b.px, y2: b.py, dir1: dir, dir2: back, onPath, oneWay });
+        exits.push({ x1: a.px, y1: a.py, x2: b.px, y2: b.py, dir1: dir, dir2: back, onPath, oneWay, ...styled });
       } else {
         // Across the far side of a ring from the view's centre: each end runs
         // off the edge toward where the other comes round, not across the map.
-        exits.push({ x1: a.px, y1: a.py, x2: a.px + step * scale, y2: b.py, dir1: dir, dir2: null, onPath, seam: true });
-        exits.push({ x1: b.px, y1: b.py, x2: b.px - step * scale, y2: a.py, dir1: back, dir2: null, onPath, seam: true });
+        exits.push({ x1: a.px, y1: a.py, x2: a.px + step * scale, y2: b.py, dir1: dir, dir2: null, onPath, seam: true, ...styled });
+        exits.push({ x1: b.px, y1: b.py, x2: b.px - step * scale, y2: a.py, dir1: back, dir2: null, onPath, seam: true, ...styled });
       }
     }
   }
@@ -133,7 +147,7 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
     }
   }
 
-  return { rooms, exits, stubs, tints, regions, scale };
+  return { rooms, exits, stubs, tints, regions, elevation, scale };
 }
 
 // Where a stub to a room out of view leads, for its card: another area (by
@@ -284,6 +298,101 @@ export function roomsInRect(layout, x0, y0, x1, y1, roomSize) {
     .map((rm) => rm.id);
 }
 
+// How each exit style is stroked (mudstd extension `style`): a path is the
+// plain 2px line; a road clearly thicker; a trail thin, faint and dotted; a
+// climb a thin line crossed by ticks, like hachures on a steep slope. None
+// is dashed, so a ring's seam (dashed) still reads, and with an arrowhead or
+// a route's highlight they keep their shape. Widths grow a little with zoom.
+export function exitStroke(style, { onPath = false, half = 8 } = {}) {
+  switch (style) {
+    case "road": {
+      const w = Math.max(3.5, half * 0.4);
+      return { width: onPath ? Math.max(w, 4) + 1.5 : w, dash: [], alpha: 1, ticks: false };
+    }
+    case "trail":
+      return { width: onPath ? 3 : 1.5, dash: [0.5, 3.5], alpha: onPath ? 1 : 0.75, ticks: false };
+    case "climb":
+      return { width: onPath ? 3 : 1.5, dash: [], alpha: 1, ticks: true };
+    default:
+      return { width: onPath ? 4 : 2, dash: [], alpha: 1, ticks: false };
+  }
+}
+
+// Stroke one exit line (exitGeometry's g) in its style. A way across a ring's
+// seam is dashed whatever its style: it goes on round, out of view.
+function strokeExit(ctx, g, style, { color, onPath = false, seam = false, half }) {
+  const st = exitStroke(style, { onPath, half });
+  ctx.beginPath();
+  ctx.moveTo(g.start.x, g.start.y);
+  ctx.lineTo(g.a.x, g.a.y);
+  ctx.bezierCurveTo(g.c1.x, g.c1.y, g.c2.x, g.c2.y, g.b.x, g.b.y);
+  ctx.lineTo(g.end.x, g.end.y);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = st.width;
+  ctx.globalAlpha = st.alpha;
+  if (ctx.setLineDash) ctx.setLineDash(seam ? [4, 3] : st.dash);
+  ctx.stroke();
+  if (ctx.setLineDash) ctx.setLineDash([]);
+  if (st.ticks) {
+    ctx.beginPath();
+    for (const t of climbTicks(g, tickSpacing(half), tickLength(half))) {
+      ctx.moveTo(t.x1, t.y1);
+      ctx.lineTo(t.x2, t.y2);
+    }
+    ctx.lineWidth = Math.max(1, st.width * 0.8);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+const tickSpacing = (half) => Math.max(4, Math.min(7, half * 0.5));
+const tickLength = (half) => Math.max(2.5, Math.min(5, half * 0.35));
+
+// A small sample of an exit style, as the legend shows it: a straight way
+// from (x1, y) to (x2, y).
+export function drawWaySample(ctx, style, x1, x2, y, color, half = 8) {
+  const g = { start: { x: x1, y }, a: { x: x1, y }, c1: { x: x1, y }, c2: { x: x2, y }, b: { x: x2, y }, end: { x: x2, y } };
+  ctx.lineCap = "round";
+  strokeExit(ctx, g, style, { color, half });
+  ctx.lineCap = "butt";
+}
+
+// The ticks across a climb's line: short strokes `len` either side of it,
+// square to it, every `spacing` px along it (from half a spacing in), clear
+// of its last half spacing. [{ x1, y1, x2, y2 }].
+export function climbTicks(g, spacing, len) {
+  const pts = [g.start, g.a];
+  const n = 12;
+  for (let i = 1; i <= n; i++) {
+    const t = i / n, u = 1 - t;
+    pts.push({
+      x: u * u * u * g.a.x + 3 * u * u * t * g.c1.x + 3 * u * t * t * g.c2.x + t * t * t * g.b.x,
+      y: u * u * u * g.a.y + 3 * u * u * t * g.c1.y + 3 * u * t * t * g.c2.y + t * t * t * g.b.y,
+    });
+  }
+  pts.push(g.end);
+  let total = 0;
+  const segs = [];
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i - 1], q = pts[i];
+    const l = Math.hypot(q.x - p.x, q.y - p.y);
+    if (l < 1e-6) continue;
+    segs.push({ p, q, l, at: total });
+    total += l;
+  }
+  const out = [];
+  let k = 0;
+  for (let d = spacing / 2; d <= total - spacing / 2 + 1e-9; d += spacing) {
+    while (k < segs.length - 1 && segs[k].at + segs[k].l < d) k++;
+    const sg = segs[k];
+    const f = (d - sg.at) / sg.l;
+    const x = sg.p.x + (sg.q.x - sg.p.x) * f, y = sg.p.y + (sg.q.y - sg.p.y) * f;
+    const nx = -(sg.q.y - sg.p.y) / sg.l, ny = (sg.q.x - sg.p.x) / sg.l;
+    out.push({ x1: x - nx * len, y1: y - ny * len, x2: x + nx * len, y2: y + ny * len });
+  }
+  return out;
+}
+
 // Where a room is drawn. On a ring (the server's `wrap`, kept as `wrapX`) x
 // comes round, so the room is drawn at the x nearest the anchor's: the ring
 // is centred on where you are, and its seam is always on the far side.
@@ -331,9 +440,14 @@ function regionLayout(map, rooms, areaId, z, anchor, cx, cy, scale) {
 
   // One tint per cell, even where two rooms share it.
   const tinted = new Set();
+  const colors = new Map();   // region → the server's colour, or null
+  const colorOf = (key) => {
+    if (!colors.has(key)) colors.set(key, areaRegionColor(map, areaId, key));
+    return colors.get(key);
+  };
   const tint = (t) => {
     const k = `${t.px},${t.py}`;
-    if (!tinted.has(k)) { tinted.add(k); tints.push(t); }
+    if (!tinted.has(k)) { tinted.add(k); tints.push({ ...t, color: colorOf(t.region) }); }
   };
   for (const r of inRegion) {
     tint({ px: r.px, py: r.py, region: r.region });
@@ -418,25 +532,16 @@ export function draw(ctx, layout, { roomSize, colors, labels = true }) {
   // Region tints first: a faint full cell under each room, so a region's
   // neighbouring rooms join into one patch beneath the exits.
   for (const t of layout.tints || []) {
-    ctx.fillStyle = regionColor(t.region, 0.18);
+    ctx.fillStyle = regionColor(t.region, 0.18, t.color);
     ctx.fillRect(t.px - scale / 2, t.py - scale / 2, scale, scale);
   }
   ctx.lineCap = "round";
   for (const e of layout.exits) {
     const g = exitGeometry(e, half);
-    ctx.beginPath();
-    ctx.moveTo(g.start.x, g.start.y);
-    ctx.lineTo(g.a.x, g.a.y);
-    ctx.bezierCurveTo(g.c1.x, g.c1.y, g.c2.x, g.c2.y, g.b.x, g.b.y);
-    ctx.lineTo(g.end.x, g.end.y);
-    ctx.strokeStyle = e.onPath ? c.exitPath : c.exit;
-    ctx.lineWidth = e.onPath ? 4 : 2;
-    // A way across a ring's seam is dashed: it goes on round, out of view.
-    if (ctx.setLineDash) ctx.setLineDash(e.seam ? [4, 3] : []);
-    ctx.stroke();
-    if (e.oneWay) drawArrowhead(ctx, oneWayArrow(g, half), ctx.strokeStyle);
+    const color = e.onPath ? c.exitPath : c.exit;
+    strokeExit(ctx, g, e.style, { color, onPath: e.onPath, seam: e.seam, half });
+    if (e.oneWay) drawArrowhead(ctx, oneWayArrow(g, half), color);
   }
-  if (ctx.setLineDash) ctx.setLineDash([]);
   // Stubs: a way not taken yet fades out in its own colour, a path running
   // on into the unknown; a way to a room out of view (another area or floor)
   // runs to a card naming where it goes (placeCards), or where no card fits,

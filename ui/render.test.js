@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { createMap, addRoom, linkExit, setCurrent, addArea } from "./graph.js";
+import { exitStroke, climbTicks } from "./render.js";
+import { shadeColor, inkOn } from "./annotate.js";
+import { setTagDefs } from "./graph.js";
 import { computeLayout, envColor, draw, fitText, glyphOrigin, roomsInRect, exitPort, clearOf, exitGeometry, oneWayArrow, cardAt, NAME_LABEL_MIN_SCALE } from "./render.js";
 import { setTerrains } from "./graph.js";
 import { addLink } from "./links.js";
@@ -51,7 +54,7 @@ describe("computeLayout", () => {
 
   it("returns empty layout with no current room", () => {
     const m = createMap();
-    expect(computeLayout(m, { cx: 0, cy: 0, scale: 40 })).toEqual({ rooms: [], exits: [], stubs: [], tints: [], regions: [], scale: 40 });
+    expect(computeLayout(m, { cx: 0, cy: 0, scale: 40 })).toEqual({ rooms: [], exits: [], stubs: [], tints: [], regions: [], elevation: null, scale: 40 });
   });
 
   it("envColor is deterministic and non-empty", () => {
@@ -762,6 +765,140 @@ describe("one-way stubs to another floor", () => {
       };
       draw(ctx, computeLayout(m, { cx: 200, cy: 200, scale: 40 }), { roomSize: 20, labels });
       expect(calls).toContainEqual(["fill", "#6b7280"]);
+    }
+  });
+});
+
+describe("computeLayout: height shading", () => {
+  function hills() {
+    const m = createMap();
+    const area = addArea(m, { key: "land" });
+    const low = addRoom(m, { key: "lo", env: "x", coords: { x: 0, y: 0, z: 0 }, areaId: area.id });
+    const high = addRoom(m, { key: "hi", env: "x", coords: { x: 1, y: 0, z: 0 }, areaId: area.id });
+    const flat = addRoom(m, { key: "fl", env: "x", coords: { x: 2, y: 0, z: 0 }, areaId: area.id });
+    const above = addRoom(m, { key: "up", env: "x", coords: { x: 0, y: 0, z: 1 }, areaId: area.id });
+    setTerrains(m, { x: { label: "X", color: "#808080" } });
+    low.elevation = 0; high.elevation = 400; above.elevation = 9000;
+    setCurrent(m, low.id);
+    return { m, low, high, flat };
+  }
+
+  it("shades by the range on the floor drawn, lighter higher, and leaves rooms without elevation alone", () => {
+    const { m, low, high, flat } = hills();
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    expect(L.elevation).toEqual({ min: 0, max: 400 });   // the room upstairs isn't in it
+    const fill = (r) => L.rooms.find((x) => x.id === r.id).fill;
+    expect(fill(high)).toBe(shadeColor("#808080", 1));
+    expect(fill(low)).toBe(shadeColor("#808080", -1));
+    expect(fill(flat)).toBe("#808080");
+  });
+
+  it("shades the user's colour too, and not at all when turned off", () => {
+    const { m, high } = hills();
+    high.color = "#204060";
+    const on = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    expect(on.rooms.find((x) => x.id === high.id).fill).toBe(shadeColor("#204060", 1));
+    const off = computeLayout(m, { cx: 0, cy: 0, scale: 40, shade: false });
+    expect(off.rooms.find((x) => x.id === high.id).fill).toBe("#204060");
+    expect(off.elevation).toEqual({ min: 0, max: 400 });   // still reported, for the toggle
+  });
+
+  it("has no range where no room on the floor has an elevation", () => {
+    const { m } = sampleMap();
+    expect(computeLayout(m, { cx: 0, cy: 0, scale: 40 }).elevation).toBe(null);
+  });
+
+  it("inks the glyph for the shaded fill", () => {
+    const m = createMap();
+    const area = addArea(m, { key: "land" });
+    // #969696 reads with black ink; darkened by 18% (to #7b7b7b) it takes white.
+    setTerrains(m, { x: { label: "X", color: "#969696" } });
+    const lo = addRoom(m, { key: "lo", env: "x", coords: { x: 0, y: 0, z: 0 }, areaId: area.id });
+    const hi = addRoom(m, { key: "hi", env: "x", coords: { x: 1, y: 0, z: 0 }, areaId: area.id });
+    lo.elevation = 0; hi.elevation = 1000; lo.symbol = "Q";
+    setCurrent(m, lo.id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    const ctx = recordingCtx();
+    const fills = [];
+    const orig = ctx.fillText;
+    ctx.fillText = (t, x, y) => { fills.push([t, ctx.fillStyle]); orig(t, x, y); };
+    draw(ctx, L, { roomSize: 20, labels: false });
+    expect(fills.find((f) => f[0] === "Q")[1]).toBe(inkOn(shadeColor("#969696", -1)));
+    expect(inkOn(shadeColor("#969696", -1))).not.toBe(inkOn("#969696"));
+  });
+});
+
+describe("computeLayout: game glyphs", () => {
+  it("draws the first game tag's glyph over the built-in one", () => {
+    const { m, a } = sampleMap();
+    setTagDefs(m, [{ id: "smithy", label: "Smithy", glyph: "S" }]);
+    a.tags = ["market", "smithy"];
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    expect(L.rooms.find((r) => r.id === a.id).glyph).toBe("S");
+  });
+});
+
+describe("computeLayout: region colours", () => {
+  it("tints with the server's region colour, else none (the hashed hue)", () => {
+    const m = createMap();
+    const area = addArea(m, { key: "t" });
+    const r1 = addRoom(m, { key: "a", coords: { x: 0, y: 0, z: 0 }, areaId: area.id });
+    const r2 = addRoom(m, { key: "b", coords: { x: 1, y: 0, z: 0 }, areaId: area.id });
+    r1.region = "docks"; r2.region = "old";
+    area.regionColors = { docks: "#102030" };
+    setCurrent(m, r1.id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    expect(L.tints.find((t) => t.region === "docks").color).toBe("#102030");
+    expect(L.tints.find((t) => t.region === "old").color).toBe(null);
+  });
+});
+
+describe("computeLayout: exit styles", () => {
+  function pair(styleA, styleB) {
+    const m = createMap();
+    const a = addRoom(m, { key: "A", coords: { x: 0, y: 0, z: 0 } });
+    const b = addRoom(m, { key: "B", coords: { x: 1, y: 0, z: 0 } });
+    linkExit(m, a.id, "e", b.id);
+    linkExit(m, b.id, "w", a.id);
+    if (styleA) a.exitStyles = { e: styleA };
+    if (styleB) b.exitStyles = { w: styleB };
+    setCurrent(m, a.id);
+    return computeLayout(m, { cx: 0, cy: 0, scale: 40 }).exits;
+  }
+
+  it("leaves a plain path unstyled", () => {
+    expect(pair(null, null)[0].style).toBeUndefined();
+  });
+
+  it("draws the line once in the stronger style of its two ends", () => {
+    expect(pair("road", null)).toHaveLength(1);
+    expect(pair("road", null)[0].style).toBe("road");
+    expect(pair(null, "trail")[0].style).toBe("trail");
+    expect(pair("trail", "road")[0].style).toBe("road");
+    expect(pair("climb", "road")[0].style).toBe("climb");
+    expect(pair("road", "climb")[0].style).toBe("climb");
+  });
+
+  it("strokes each style distinctly, none dashed like a seam", () => {
+    const path = exitStroke("path"), road = exitStroke("road"), trail = exitStroke("trail"), climb = exitStroke("climb");
+    expect(road.width).toBeGreaterThan(path.width);
+    expect(trail.width).toBeLessThan(path.width);
+    expect(trail.alpha).toBeLessThan(1);
+    expect(climb.ticks).toBe(true);
+    for (const st of [path, road, climb]) expect(st.dash).toEqual([]);
+    expect(trail.dash).not.toEqual([4, 3]);
+    expect(exitStroke("bogus")).toEqual(path);
+    // On a route the road stays thicker than a highlighted path.
+    expect(exitStroke("road", { onPath: true }).width).toBeGreaterThan(exitStroke("path", { onPath: true }).width);
+  });
+
+  it("ticks a climb square to its line, evenly along it", () => {
+    const g = { start: { x: 0, y: 0 }, a: { x: 0, y: 0 }, c1: { x: 0, y: 0 }, c2: { x: 20, y: 0 }, b: { x: 20, y: 0 }, end: { x: 20, y: 0 } };
+    const ticks = climbTicks(g, 5, 3);
+    expect(ticks.map((t) => Math.round(t.x1 * 100) / 100)).toEqual([2.5, 7.5, 12.5, 17.5]);
+    for (const t of ticks) {
+      expect(t.x1).toBeCloseTo(t.x2);
+      expect(Math.abs(t.y2 - t.y1)).toBeCloseTo(6);
     }
   });
 });
