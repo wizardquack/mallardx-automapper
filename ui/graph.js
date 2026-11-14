@@ -2,6 +2,8 @@
 // areas keyed by internal id (with a key→id index). Each area is its own
 // coordinate space. Pure data + mutations; no DOM, no host APIs.
 
+import { reliefFromJSON } from "./relief.js";
+
 const VERSION = 2;
 
 export function createMap() {
@@ -24,6 +26,9 @@ export function createMap() {
     // True once the server has sent a `links` list (links.js): it says where
     // its ways that aren't exits go, so a move by neither is a teleport.
     serverWays: false,
+    // Ground relief (relief.js, mudstd.relief.patch): { [area]: { [z]:
+    // ReliefGrid } }, by the frames' area key. Saved as base64 chunks.
+    relief: {},
   };
 }
 
@@ -152,8 +157,12 @@ export function listAreas(map) {
 
 // ── Serialization ────────────────────────────────────────────────────────────
 
-export function toJSON(map) {
-  return JSON.stringify(map);
+// `relief: false` leaves the relief grids out: undo snapshots don't carry
+// them (they can be large, and edits don't change them), and mapper.js keeps
+// the live grids across an undo.
+export function toJSON(map, { relief = true } = {}) {
+  if (relief) return JSON.stringify(map);
+  return JSON.stringify({ ...map, relief: undefined });
 }
 
 export function fromJSON(str) {
@@ -174,6 +183,7 @@ export function fromJSON(str) {
         tagDefs: Array.isArray(parsed.tagDefs) ? parsed.tagDefs : [],
         charts: parsed.charts || {},
         serverWays: parsed.serverWays === true,
+        relief: reliefFromJSON(parsed.relief),
       };
     }
     if (parsed.version === 1) return migrateV1(parsed);
