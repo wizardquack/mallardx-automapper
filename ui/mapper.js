@@ -13,7 +13,7 @@ import { addLink, deleteLink, setLinkOneWay, setLinkField, linksOf, hasWay, offe
 import { createHistory } from "./history.js";
 import { roomMenuModel, selectionMenuModel } from "./editmenu.js";
 import { addArea } from "./graph.js";
-import { decodePatch, mergePatch, areasWithRooms, clearEmptiedRelief, reliefArea } from "./relief.js";
+import { decodePatch, mergePatch, areasWithRooms, clearEmptiedRelief, areaWraps, rewrapRelief } from "./relief.js";
 import { resolveRoomSeen, contradicts } from "./identity.js";
 import { seenFromFrame, terrainsFromFrame, tagDefsFromFrame } from "./seen.js";
 import { importChart } from "./chart.js";
@@ -95,6 +95,7 @@ function applyEdit(fn) {
   const before = toJSON(map, { relief: false });
   const ok = fn();
   if (!ok) return false;
+  syncWraps();
   history.push(before);
   rebuildAreaSelect();
   redraw();
@@ -106,6 +107,7 @@ function restoreSnapshot(json) {
   const relief = map.relief;
   map = fromJSON(json);
   map.relief = relief;
+  syncWraps();
 }
 
 function doUndo() {
@@ -720,6 +722,8 @@ function deleteRooms(ids) {
 // ── Host messages ────────────────────────────────────────────────────────────
 panel.on("load", (frame) => {
   map = frame && frame.json ? fromJSON(frame.json) : createMap();
+  wraps = new Map();
+  const rewrapped = syncWraps();   // a map saved before 0.13.2 may hold cells off its ring
   if (frame && frame.cfg) cfg = { ...cfg, ...frame.cfg };
   if (frame && frame.walk) walkCfg = { ...walkCfg, ...frame.walk };
   if (frame && typeof frame.linkOffers === "string") linkOffers = frame.linkOffers;
@@ -729,12 +733,14 @@ panel.on("load", (frame) => {
   if (pendingTagDefs) { setTagDefs(map, pendingTagDefs); pendingTagDefs = null; }
   for (const frame of pendingCharts) applyChart(frame);
   pendingCharts = [];
-  for (const frame of pendingRelief) applyRelief(frame);
+  let dirty = rewrapped;
+  for (const frame of pendingRelief) if (applyRelief(frame)) dirty = true;
   pendingRelief = [];
   stopWalkTimer(); walk = null; highlightPath = null;
   focusCurrentArea();
   rebuildAreaSelect();
   redraw();
+  if (dirty) schedulePersist();
 });
 
 // Queued, not overwritten: a paced MUD answers a burst of moves one room at a
@@ -770,6 +776,7 @@ function ingestRoom(seen) {
   const prevId = map.currentId, first = !sawRoom;
   sawRoom = true;
   resolveRoomSeen(map, seen, pendingDir, cfg);
+  syncWraps();
   const curId = map.currentId;
   if (curId !== prevId) hideLinkOffer();
   if (!first && !walking && prevId != null && getRoom(map, prevId) && curId != null && curId !== prevId
@@ -815,6 +822,7 @@ function applyChart(frame) {
   if (tag && version && map.charts[tag] === version) return false;
   const seen = frame.rooms.map(seenFromFrame).filter(Boolean);
   importChart(map, seen, cfg);
+  syncWraps();
   if (tag && version) map.charts[tag] = version;
   return true;
 }
@@ -833,17 +841,22 @@ panel.on("room_chart", (frame) => {
 function applyRelief(frame) {
   const p = decodePatch(frame);
   if (!p) return false;
-  return mergePatch(map, p, areaWrapX(p.area));
+  return mergePatch(map, p, wraps.get(p.area) || null);
 }
 
-// Where the rooms of the area with frames' key `tag` say x comes round.
-function areaWrapX(tag) {
-  for (const id of Object.keys(map.rooms)) {
-    const r = map.rooms[id];
-    if (!r.wrapX) continue;
-    if (reliefArea(map.areas[r.areaId]) === tag) return r.wrapX;
+// Where each area's x comes round (relief.js areaWraps), worked out again
+// whenever rooms change rather than per patch. An area whose wrap is new or
+// different has its stored relief brought onto the ring. True if that
+// changed the relief.
+let wraps = new Map();
+function syncWraps() {
+  const now = areaWraps(map);
+  let changed = false;
+  for (const [area, w] of now) {
+    if (wraps.get(area) !== w && rewrapRelief(map, area, w)) changed = true;
   }
-  return null;
+  wraps = now;
+  return changed;
 }
 
 let redrawQueued = false;

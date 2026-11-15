@@ -3,9 +3,9 @@ import {
   decodePatch, mergePatch, clearRelief, reliefArea, ReliefGrid, reliefFromJSON,
   b64FromBytes, bytesFromB64, wrapCells, wrapI, contourInterval, contourSegments,
   reliefField, hillshade, areasWithRooms, clearEmptiedRelief, UNKNOWN_H, UNKNOWN_G, CHUNK, FALLBACK_REACH,
-  paintRelief, resetReliefCache, between, INTERP_REACH, contourInk, CONTOUR_INK_DARK, CONTOUR_INK_LIGHT, CONTOUR_ALPHA, INDEX_CONTOUR_ALPHA,
+  paintRelief, resetReliefCache, areaWraps, rewrapRelief, between, INTERP_REACH, contourInk, CONTOUR_INK_DARK, CONTOUR_INK_LIGHT, CONTOUR_ALPHA, INDEX_CONTOUR_ALPHA,
 } from "./relief.js";
-import { createMap, toJSON, fromJSON } from "./graph.js";
+import { createMap, toJSON, fromJSON, addRoom, addArea } from "./graph.js";
 
 // base64 of little-endian int16 values.
 function h16(values) {
@@ -157,6 +157,38 @@ describe("mergePatch", () => {
     expect(reliefArea({ key: "zone:surface.tamsin" })).toBe("surface.tamsin");
     expect(reliefArea({ key: "__overworld__" })).toBe(null);
     expect(reliefArea(null)).toBe(null);
+  });
+});
+
+describe("areaWraps / rewrapRelief", () => {
+  it("finds each zone area's wrap from its rooms", () => {
+    const m = createMap();
+    addArea(m, { key: "zone:ring", label: "Ring" });
+    const ringId = Object.keys(m.areas).find((id) => m.areas[id].key === "zone:ring");
+    const r = addRoom(m, { key: "r1", coords: { x: 1, y: 0, z: 0 } });
+    r.areaId = ringId; r.wrapX = 24;
+    addRoom(m, { key: "plain", coords: { x: 0, y: 0, z: 0 } });
+    expect([...areaWraps(m)]).toEqual([["ring", 24]]);
+  });
+
+  it("brings cells merged before the wrap was known onto the ring", () => {
+    const m = createMap();
+    // Columns -1 and 48 (x = -0.5, 24) arrive before the wrap of 24 is known.
+    mergePatch(m, decodePatch(patch({ area: "ring", x: -0.5, y: 0, height: [7, 8, 9, 10] })));
+    mergePatch(m, decodePatch(patch({ area: "ring", x: 24, y: 0, cols: 1, rows: 1, height: [5] })));
+    const g = m.relief.ring[0];
+    const rev = g.rev;
+    expect(rewrapRelief(m, "ring", 24)).toBe(true);
+    expect(g.rev).not.toBe(rev);
+    expect(g.height(47, 0)).toBe(7);    // was -1
+    expect(g.height(0, 0)).toBe(5);     // was 48: overwrites the 8 already at column 0
+    expect(g.height(47, -1)).toBe(9);
+    expect(g.height(0, -1)).toBe(10);
+    expect(g.height(-1, 0)).toBe(UNKNOWN_H);
+    expect(g.height(48, 0)).toBe(UNKNOWN_H);
+    // Already on the ring: nothing to do.
+    expect(rewrapRelief(m, "ring", 24)).toBe(false);
+    expect(rewrapRelief(m, "nowhere", 24)).toBe(false);
   });
 });
 

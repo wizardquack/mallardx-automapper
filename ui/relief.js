@@ -223,6 +223,75 @@ export function wrapI(i, wc) {
   return wc ? ((i % wc) + wc) % wc : i;
 }
 
+// Where each area's x comes round: Map(relief area → wrapX) from the rooms
+// that carry one (identity.js `wrapX`). One pass over the rooms; mapper.js
+// keeps the result and works it out again only when rooms change.
+export function areaWraps(map) {
+  const byArea = new Map();
+  for (const id of Object.keys(map.rooms)) {
+    const r = map.rooms[id];
+    if (r.wrapX && !byArea.has(r.areaId)) byArea.set(r.areaId, r.wrapX);
+  }
+  const out = new Map();
+  for (const [areaId, w] of byArea) {
+    const key = reliefArea(map.areas && map.areas[areaId]);
+    if (key != null) out.set(key, w);
+  }
+  return out;
+}
+
+// Bring an area's stored columns into its ring of `wrapX` (map units), on
+// every floor: cells merged before the wrap was known (a login refill can
+// come before the first room frame that carries it) sit off the ring, where
+// they're never drawn. A cell landing on one already known overwrites it
+// where it's known. True if anything moved.
+export function rewrapRelief(map, area, wrapX) {
+  const floors = map.relief && map.relief[area];
+  if (!floors) return false;
+  let changed = false;
+  for (const z of Object.keys(floors)) {
+    const grid = floors[z];
+    const wc = wrapCells(wrapX, grid.cell);
+    if (!wc) continue;
+    let off = false;
+    for (const [key, ch] of grid.chunks) {
+      const ci = Number(key.split(",")[0]);
+      if (ci * CHUNK >= 0 && (ci + 1) * CHUNK <= wc) continue;
+      for (let at = 0; at < CHUNK * CHUNK && !off; at++) {
+        const i = ci * CHUNK + (at % CHUNK);
+        if ((i < 0 || i >= wc) && (ch.h[at] !== UNKNOWN_H || ch.g[at] !== UNKNOWN_G)) off = true;
+      }
+      if (off) break;
+    }
+    if (!off) continue;
+    const old = grid.chunks;
+    grid.chunks = new Map();
+    // Cells on the ring first, so one coming round from off it overwrites.
+    const passes = [[], []];
+    for (const [key, ch] of old) {
+      const [ci, cj] = key.split(",").map(Number);
+      passes[0].push([ci, cj, ch]);
+      passes[1].push([ci, cj, ch]);
+    }
+    for (let pass = 0; pass < 2; pass++) {
+      for (const [ci, cj, ch] of passes[pass]) {
+        for (let at = 0; at < CHUNK * CHUNK; at++) {
+          const h = ch.h[at], g = ch.g[at];
+          if (h === UNKNOWN_H && g === UNKNOWN_G) continue;
+          const i = ci * CHUNK + (at % CHUNK), j = cj * CHUNK + Math.floor(at / CHUNK);
+          if ((i >= 0 && i < wc) !== (pass === 0)) continue;
+          const c = grid.chunkAt(wrapI(i, wc), j, true);
+          if (h !== UNKNOWN_H) c.ch.h[c.at] = h;
+          if (g !== UNKNOWN_G) c.ch.g[c.at] = g;
+        }
+      }
+    }
+    grid.rev = ++REV;
+    changed = true;
+  }
+  return changed;
+}
+
 // Merge a decoded patch into the map: known cells overwrite, unknown ones
 // never erase; a patch with another `cell` for that area and floor replaces
 // the grid, once it has a known cell (a patch of nothing but unknowns
