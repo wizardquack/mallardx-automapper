@@ -200,9 +200,9 @@ check("b64 len padded", roomframe.b64_len("AAA="), 2)
 check("b64 len unpadded", roomframe.b64_len("AAA"), 2)
 check("b64 len bad char", roomframe.b64_len("AA!A"), nil)
 check("b64 len bad length", roomframe.b64_len("AAAAA"), nil)
-local rp = roomframe.relief_patch({ area = "surface.tamsin", cell = 0.5, x = 4, y = 6.5, cols = 2, rows = 1,
+local rp = roomframe.relief_patch({ area = "wilds", cell = 0.5, x = 4, y = 6.5, cols = 2, rows = 1,
   height = "ZAD//w==", ground = { ids = { "dust", "sea" }, data = "AAE=" } })
-check("relief area", rp and rp.area, "surface.tamsin")
+check("relief area", rp and rp.area, "wilds")
 check("relief z defaults to 0", rp and rp.z, 0)
 check("relief height passed through", rp and rp.height, "ZAD//w==")
 check("relief ground ids", rp and rp.ground and rp.ground.ids[2], "sea")

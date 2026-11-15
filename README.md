@@ -42,7 +42,7 @@ richer frame.
   it changes, the label follows; `area` stays the key.
 - **An exit's `area` and `areaName`** (extension) — on an exit that leads out
   of the room's area, that area's key and name:
-  `"E": { "id": "join.downs", "area": "land", "areaName": "Tamsin" }`. The
+  `"E": { "id": "join.moor", "area": "land", "areaName": "Wilds" }`. The
   exit's stub ends in a card naming the area before anyone's taken it (your
   label for the area, if it's on the map). With no room behind it, a click
   shows the way to the exit's room, and a double-click walks there, or from
@@ -78,7 +78,7 @@ richer frame.
   sent winning. Without one, the colour is hashed from the region's key.
 - **`regionType`** (extension, 0.13.1) — beside `region`, what kind of
   region it is: `"district"` (the default: a tinted patch with its name over
-  it, as above) or `"land"`, a named piece of country (the Downs, the Carn)
+  it, as above) or `"land"`, a named piece of country (the Moor, the Fells)
   that's labelled, shown on hover and found by search like any region but
   gets no tint, so it doesn't paint over the ground relief. The legend lists
   a land region with no swatch. Any other value means `district`. Kept with
@@ -156,7 +156,7 @@ that advertised it. The full spec is `docs/relief-spec.md`.
 
 ```json
 mudstd.relief.patch {
-  "area": "surface.tamsin", "z": 0, "cell": 0.5,
+  "area": "wilds", "z": 0, "cell": 0.5,
   "x": 4.0, "y": 6.5, "cols": 12, "rows": 10,
   "height": "<base64>",
   "ground": { "ids": ["dust", "stones", "sea"], "data": "<base64>" }
@@ -181,9 +181,11 @@ mudstd.relief.patch {
 
 What to reveal is the server's call: the map draws only the cells it has been
 sent, and keeps them in the saved map (as compact base64 chunks; a few
-hundred small patches come to tens of kB). They're also replayed when the
-panel reloads, so a refill sent at login isn't lost. Deleting the last room
-of an area forgets its grids.
+hundred small patches come to tens of kB). Until a save includes them they're
+also replayed when the panel reloads, so a refill sent at login isn't lost;
+once saved they aren't sent again (0.13.2). Deleting the last room of an
+area forgets its grids (undo brings them back). Cells sent before the area's
+wrap was known are brought onto the ring once it is.
 
 **Drawing.** Under the region patches, rooms and exits, for the floor in
 view: each known cell's ground in its terrain colour at modest opacity, hill
@@ -198,13 +200,24 @@ band along each exit and stub; the ground colour and shading run on
 underneath.
 
 **Estimated relief.** Where an area has rooms with an `elevation` but no grid
-near them (within 1.5 map units), heights are estimated from those rooms,
-reaching about 1.5 units out from them and fading. Between rooms it reaches
+near them (within 1.5 room spacings), heights are estimated from those rooms,
+reaching about 1.5 spacings out from them and fading. Between rooms it reaches
 further (0.13.1): a spot with rooms on two sides of it (seen at least 90°
-apart, fully at 120°) within about 2.5 units is filled in, so the ground
-between rooms two or three units apart isn't left as holes; past the outer
-edge of the rooms it still ends at about 1.5 units. Only shading and
+apart, fully at 120°) within about 2.5 spacings is filled in, so the ground
+between rooms two or three spacings apart isn't left as holes; past the outer
+edge of the rooms it still ends at about 1.5 spacings. Only shading and
 contours are drawn from an estimate, never ground colour.
+
+**Room spacing (0.13.2).** Distances about rooms (an off-grid district's
+discs, bands and closing above, and the estimate's reach) are in room
+spacings, so they hold whatever units a game's coords are in: rooms placed
+by metres, 40 apart, are drawn like rooms placed a unit apart. An area's
+spacing comes from the median length of the exits between its rooms on a
+floor (a diagonal counted as one step). On a lattice (every room on whole
+multiples of that step) it's the step: 1 on a grid, which draws as it always
+has. Off one it's the median over 1.6, the median of the land these were
+tuned on, so land like that draws as before. With fewer than three such
+exits it's 1.
 
 The **◭** button turns relief off and on with the room shading; it shows
 while the floor has a grid or rooms with an elevation. The **?** legend's

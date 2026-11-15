@@ -180,9 +180,9 @@ describe("resolveRoomSeen — where an exit leads out of the area", () => {
     const m = createMap();
     const { room: a } = resolveRoomSeen(m, {
       key: "A", name: "Port Road",
-      exits: [{ dir: "e", toKey: "J", area: "surface.tamsin", areaName: "Tamsin" }, { dir: "w", toKey: "B" }],
+      exits: [{ dir: "e", toKey: "J", area: "wilds", areaName: "Wilds" }, { dir: "w", toKey: "B" }],
     }, null);
-    expect(a.exitAreas).toEqual({ e: { tag: "surface.tamsin", name: "Tamsin" } });
+    expect(a.exitAreas).toEqual({ e: { tag: "wilds", name: "Wilds" } });
     resolveRoomSeen(m, { key: "A", name: "Port Road", exits: [{ dir: "w", toKey: "B" }] }, null);
     expect(a.exitAreas).toBeUndefined();
   });

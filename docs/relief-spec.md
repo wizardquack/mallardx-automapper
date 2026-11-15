@@ -1,7 +1,8 @@
-# mudstd.relief: a ground grid behind the map (shared spec, 2026-11-14)
+# mudstd.relief: a ground grid behind the map (2026-11-14)
 
-Settled with the user. The automapper and Empyreal are built to this in parallel;
-change it only by flagging to the parent workspace.
+The wire format for sending the ground under an area (heights and ground
+terrain on a grid) to a client that draws it behind its map, and how this
+automapper draws it.
 
 ## Package and negotiation
 
@@ -16,12 +17,12 @@ Each area (the room frames' `area` key) and floor has one notional grid in the
 area's own map units (the same units as rooms' `coords`, north +y, east +x).
 Cell centres sit at whole multiples of `cell`: the cell (i, j) is centred at
 x = i·cell, y = j·cell. A patch is a rectangle of that grid; patches are merged
-into what the client already holds. Nothing in it is particular to Empyreal or
+into what the client already holds. Nothing in it is particular to one game or
 to worlds: no lat/lon, no km.
 
 ```json
 mudstd.relief.patch {
-  "area": "surface.tamsin",
+  "area": "wilds",
   "z": 0,
   "cell": 0.5,
   "x": 4.0, "y": 6.5,
@@ -50,17 +51,14 @@ mudstd.relief.patch {
 - **What to reveal is the server's call.** The client draws only cells it has
   been sent and keeps them (persisted with the map, like charts).
 
-## Empyreal's policy (the user's decision)
+## What a server reveals
 
-Reveal **near where you've been**: cells within about 2.5 km of generated
-places the character has walked to. Send a patch around a place each time the
-character arrives at it (revisits too; patches are small), and on login /
-Core.Supports.Set the patches for walked places within ~10 km of where the
-character is, so a fresh or cleared client map refills. `cell` 0.5 km. Ground
-ids are the land terrains already in `mudstd.room.terrain` (§9.5), plus any
-needed only by the grid (e.g. sea), added to that list.
+That's each server's own policy. A typical one: send a patch round a place
+each time a character arrives there, and on login (or `Core.Supports.Set`) the
+patches near where the character is, so a fresh or cleared client map
+refills.
 
-## The automapper's drawing (the user's decisions)
+## The automapper's drawing
 
 - Under the rooms, links and region patches, for the floor in view: the known
   cells filled with their ground colour (subtle, so rooms stay primary),
@@ -69,6 +67,6 @@ needed only by the grid (e.g. sea), added to that list.
   Unknown cells are left as background, edges softened.
 - **Fallback:** for an area with rooms that have `elevation` but no relief
   grid near them, estimate a height field from the rooms (e.g. inverse-distance
-  weighting) only within ~1.5 map units of rooms, fading out, and draw shading
+  weighting) only within ~1.5 room spacings of rooms, fading out, and draw shading
   and contours from that (no ground fill, since that comes only from a grid).
 - The existing ◭ height toggle turns all of this off with the room shading.

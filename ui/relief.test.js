@@ -154,7 +154,7 @@ describe("mergePatch", () => {
   });
 
   it("names the relief area of a zone area only", () => {
-    expect(reliefArea({ key: "zone:surface.tamsin" })).toBe("surface.tamsin");
+    expect(reliefArea({ key: "zone:wilds" })).toBe("wilds");
     expect(reliefArea({ key: "__overworld__" })).toBe(null);
     expect(reliefArea(null)).toBe(null);
   });

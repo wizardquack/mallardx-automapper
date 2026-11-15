@@ -89,17 +89,17 @@ describe("region types (0.13.1)", () => {
 
   it("are kept with the area's regions, the latest sent winning", () => {
     const m = createMap();
-    see(m, frame("a", { region: "downs", regionName: "the Downs", regionType: "land" }));
+    see(m, frame("a", { region: "moor", regionName: "the Moor", regionType: "land" }));
     const a = getRoomByKey(m, "a");
-    expect(areaRegionType(m, a.areaId, "downs")).toBe("land");
+    expect(areaRegionType(m, a.areaId, "moor")).toBe("land");
     // Not sent: left alone.
-    see(m, frame("b", { region: "downs" }), "e");
-    expect(areaRegionType(m, a.areaId, "downs")).toBe("land");
+    see(m, frame("b", { region: "moor" }), "e");
+    expect(areaRegionType(m, a.areaId, "moor")).toBe("land");
     // A district (or anything unknown) turns it back.
-    see(m, frame("c", { region: "downs", regionType: "moor" }), "e");
-    expect(areaRegionType(m, a.areaId, "downs")).toBe("district");
-    see(m, frame("c", { region: "downs", regionType: "land" }));
-    expect(fromJSON(toJSON(m)).areas[a.areaId].regionTypes).toEqual({ downs: "land" });
+    see(m, frame("c", { region: "moor", regionType: "moor" }), "e");
+    expect(areaRegionType(m, a.areaId, "moor")).toBe("district");
+    see(m, frame("c", { region: "moor", regionType: "land" }));
+    expect(fromJSON(toJSON(m)).areas[a.areaId].regionTypes).toEqual({ moor: "land" });
   });
 
   it("an old saved map (no regionTypes) loads with every region a district", () => {
@@ -115,17 +115,17 @@ describe("region types (0.13.1)", () => {
 
   it("a land region is labelled, hovered and listed but gets no patch or swatch", () => {
     const m = createMap();
-    see(m, frame("a", { coords: { x: 0, y: 0, z: 0 }, region: "downs", regionName: "the Downs", regionType: "land", regionColor: "#102030" }));
+    see(m, frame("a", { coords: { x: 0, y: 0, z: 0 }, region: "moor", regionName: "the Moor", regionType: "land", regionColor: "#102030" }));
     see(m, frame("b", { coords: { x: 1, y: 0, z: 0 }, region: "docks", regionName: "the Docks" }), "e");
     const a = getRoomByKey(m, "a");
     const L = computeLayout(m, { cx: 0, cy: 0, scale: 40, anchorId: a.id });
     expect(L.patches.map((p) => p.region)).toEqual(["docks"]);
-    expect(L.regions.map((g) => g.name).sort()).toEqual(["the Docks", "the Downs"]);
+    expect(L.regions.map((g) => g.name).sort()).toEqual(["the Docks", "the Moor"]);
     expect(legendModel(m, [a, getRoomByKey(m, "b")]).regions).toEqual([
       { name: "the Docks", color: regionColor("docks") },
-      { name: "the Downs", color: null },
+      { name: "the Moor", color: null },
     ]);
-    expect(tooltipSpec(m, a).rows).toContainEqual({ label: "Region", value: "the Downs" });
+    expect(tooltipSpec(m, a).rows).toContainEqual({ label: "Region", value: "the Moor" });
   });
 });
 

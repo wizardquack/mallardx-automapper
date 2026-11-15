@@ -52,11 +52,11 @@ check("exits non-table", #movement.exits(nil), 0)
 
 -- An exit's area (mudstd extension), where it leads out of the room's.
 local out = movement.exits({
-  E = { id = "land.join", area = "surface.tamsin", areaName = "Tamsin" },
+  E = { id = "land.join", area = "wilds", areaName = "Wilds" },
   W = { id = "town.square" },
 })
-check("exit area", out[1].area, "surface.tamsin")
-check("exit areaName", out[1].areaName, "Tamsin")
+check("exit area", out[1].area, "wilds")
+check("exit areaName", out[1].areaName, "Wilds")
 check("no area on an exit within it", out[2].area, nil)
 
 -- An exit's style (mudstd extension): road, path, trail or climb.

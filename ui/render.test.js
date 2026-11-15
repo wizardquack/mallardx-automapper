@@ -300,7 +300,7 @@ describe("computeLayout: region patches", () => {
     // Open land: km coords, odd spacing and angles.
     const pts = { a: [4.8, 1], b: [6.1, 1.7], c: [6.9, 3.2], far: [9.8, 3.3] };
     const R = {};
-    for (const [k, [x, y]] of Object.entries(pts)) { R[k] = addRoom(m, { key: k, coords: { x, y, z: 0 } }); R[k].region = "downs"; }
+    for (const [k, [x, y]] of Object.entries(pts)) { R[k] = addRoom(m, { key: k, coords: { x, y, z: 0 } }); R[k].region = "moor"; }
     linkExit(m, R.a.id, "se", R.b.id); linkExit(m, R.b.id, "nw", R.a.id);
     linkExit(m, R.b.id, "s", R.c.id);
     setCurrent(m, R.a.id);
@@ -575,30 +575,30 @@ describe("exit stubs", () => {
     const m = createMap();
     const a = addRoom(m, { key: "A", name: "Port Road", coords: { x: 0, y: 0, z: 0 }, areaId: "1" });
     a.exitKeys = { e: "land.join", n: "B" };
-    a.exitAreas = { e: { tag: "surface.tamsin", name: "Tamsin" } };
+    a.exitAreas = { e: { tag: "wilds", name: "Wilds" } };
     setCurrent(m, a.id);
     const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
     expect(L.stubs).toEqual(expect.arrayContaining([
-      { px: 0, py: 0, dir: "e", from: a.id, unexplored: false, to: null, kind: "area", unmapped: true, label: "Tamsin" },
+      { px: 0, py: 0, dir: "e", from: a.id, unexplored: false, to: null, kind: "area", unmapped: true, label: "Wilds" },
       { px: 0, py: 0, dir: "n", unexplored: true },
     ]));
   });
 
   it("names a known area by your label for it, though the exit's room isn't mapped", () => {
     const m = createMap();
-    const land = addArea(m, { key: "zone:surface.tamsin", label: "Tamsin's land" });
+    const land = addArea(m, { key: "zone:wilds", label: "Wilds land" });
     const a = addRoom(m, { key: "A", name: "Port Road", coords: { x: 0, y: 0, z: 0 }, areaId: "9" });
     addRoom(m, { key: "X", name: "Elsewhere", coords: { x: 0, y: 0, z: 0 }, areaId: land.id });
     a.exitKeys = { e: "land.join" };
-    a.exitAreas = { e: { tag: "surface.tamsin", name: "Tamsin" } };
+    a.exitAreas = { e: { tag: "wilds", name: "Wilds" } };
     setCurrent(m, a.id);
     const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
-    expect(L.stubs[0]).toMatchObject({ unmapped: true, label: "Tamsin's land" });
+    expect(L.stubs[0]).toMatchObject({ unmapped: true, label: "Wilds land" });
   });
 
   it("names the area a stub leads to, by the area's label", () => {
     const m = createMap();
-    const here = addArea(m, { key: "zone:downs", label: "the Downs" });
+    const here = addArea(m, { key: "zone:moor", label: "the Moor" });
     const there = addArea(m, { key: "zone:fields", label: "Fallow Fields" });
     const a = addRoom(m, { key: "A", name: "Port Road", coords: { x: 0, y: 0, z: 0 }, areaId: here.id });
     const far = addRoom(m, { key: "F", name: "Gate", coords: { x: 9, y: 9, z: 0 }, areaId: there.id });
@@ -664,7 +664,7 @@ describe("cards on stubs to another area or floor", () => {
   // for the label wanted; `others` are more rooms of this area, unlinked.
   function crossing(exits, others = []) {
     const m = createMap();
-    const here = addArea(m, { key: "h", label: "the Downs" });
+    const here = addArea(m, { key: "h", label: "the Moor" });
     const a = addRoom(m, { key: "A", name: "Port Road", coords: { x: 0, y: 0, z: 0 }, areaId: here.id });
     const fars = {};
     let n = 0;
@@ -738,7 +738,7 @@ describe("cards on stubs to another area or floor", () => {
   });
 
   it("slides a north card off-centre where one side is short", () => {
-    const { m } = crossing({ n: "Northfold Downs" }, [[-1, -1]]);
+    const { m } = crossing({ n: "Northfold Fells" }, [[-1, -1]]);
     const { cards } = drawAt(m, 60);
     const k = cards[0];
     expect(k.l).toBeGreaterThanOrEqual(-60 + 15 + 3);   // clear of the room up-left
