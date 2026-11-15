@@ -262,6 +262,7 @@ $shadeBtn.addEventListener("click", () => { showShading = !showShading; setPref(
 function reliefLegend(info, swatch) {
   const rows = [];
   const line = Object.assign(document.createElement("span"), { className: "legend-contour" });
+  if (info.ink) line.style.borderTopColor = info.ink;
   if (info.interval) {
     const est = !info.estimated ? "" : info.measured ? " (some estimated from rooms)" : " (estimated from rooms)";
     rows.push([line, `Contours every ${info.interval} m${est}`]);

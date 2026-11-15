@@ -648,7 +648,8 @@ let cache = null;   // { key, canvas, lines, info, cut, cutKey }
 // for one: draw(g) paints, in CSS px, what to clear, and is called only when
 // its `key` or the layers change, into a copy of the contour layer kept for
 // it (ground and shading are never cleared). Returns { interval, estimated,
-// measured, grounds: [id] } for the legend, or null when nothing was drawn.
+// measured, grounds: [id], ink } for the legend (ink: the contours' colour),
+// or null when nothing was drawn.
 export function paintRelief(ctx, view, { width, height, groundColor, colors, knockout = null }) {
   const ratio = (ctx.getTransform && ctx.getTransform().a) || 1;
   const grounds = view.grid ? view.grid.ids.map((id) => groundColor(id)).join(",") : "";
@@ -701,6 +702,7 @@ function buildLayer(view, width, height, ratio, groundColor, lightBg) {
   const interval = contourInterval(field.min, field.max);
   const info = {
     interval,
+    ink: contourInk(lightBg),
     estimated: field.est.some((v) => v),
     measured: field.known.some((v) => v),
     grounds: [...new Set([...field.G].filter((g) => g !== UNKNOWN_G))].map((g) => field.ids[g]).filter(Boolean),

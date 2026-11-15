@@ -464,7 +464,7 @@ describe("painting: contour layer, ink and halo (0.13.1)", () => {
       const ctx = target();
       let cuts = 0;
       const knockout = { key: "k1", draw: (g) => { cuts++; g.fillRect(0, 0, 10, 10); } };
-      paint(ctx, { halo: "#0b0e14" }, knockout);
+      expect(paint(ctx, { halo: "#0b0e14" }, knockout).ink).toBe(CONTOUR_INK_DARK);
       // Two drawn: ground and shading, then the cut contours.
       expect(ctx.log.length).toBe(2);
       const [base, cut] = ctx.log;
