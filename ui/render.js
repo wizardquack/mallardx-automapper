@@ -491,7 +491,12 @@ function regionLayout(map, rooms, joins, areaId, scale) {
   const patchOf = new Map();
   const gridOf = new Map();
   for (const [key, rs] of byRegion) {
-    const grid = rs.every((r) => Number.isInteger(r.cell.x) && Number.isInteger(r.cell.y));
+    // By the stored coords: on a ring the drawn x is the anchor's plus a
+    // wrapped difference, which float error takes off the whole numbers.
+    const grid = rs.every((r) => {
+      const c = map.rooms[r.id].coords;
+      return Number.isInteger(c.x) && Number.isInteger(c.y);
+    });
     gridOf.set(key, grid);
     if (areaRegionType(map, areaId, key) === "land") continue;
     const p = {

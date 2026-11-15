@@ -364,6 +364,20 @@ describe("computeLayout: region patches", () => {
     expect(L.regions.length).toBe(1);
   });
 
+  it("a region on whole-number coords is a grid on a ring seen from off the grid", () => {
+    const m = createMap();
+    // You stand at x = 1.3 (off the grid); the region's rooms come round to
+    // 1.3 + 3.7000000000000002 and so on, which isn't a whole number.
+    const me = addRoom(m, { key: "me", coords: { x: 1.3, y: 0, z: 0 } });
+    const rs = [5, 6].map((x) => addRoom(m, { key: `s${x}`, coords: { x, y: 0, z: 0 } }));
+    for (const r of [me, ...rs]) r.wrapX = 24;
+    for (const r of rs) r.region = "station";
+    linkExit(m, rs[0].id, "e", rs[1].id);
+    setCurrent(m, me.id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 10 });
+    expect(L.patches.find((p) => p.region === "station").shape).toBe("square");
+  });
+
   it("bandQuad traces a band clockwise on screen, as wide as asked", () => {
     const q = bandQuad({ x1: 0, y1: 0, x2: 10, y2: 0 }, 3);
     expect(q).toEqual([{ x: 0, y: -3 }, { x: 10, y: -3 }, { x: 10, y: 3 }, { x: 0, y: 3 }]);
