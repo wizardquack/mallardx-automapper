@@ -81,7 +81,8 @@ function schedulePersist() {
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
     persistTimer = null;
-    panel.post("persist", { json: toJSON(map) });
+    // reliefSeq: the host replays only the relief patches after it (src/reliefbuf.lua).
+    panel.post("persist", { json: toJSON(map), reliefSeq });
   }, 500);
 }
 
@@ -852,7 +853,9 @@ panel.on("room_chart", (frame) => {
 // mudstd.relief.patch: a rectangle of an area's ground grid (relief.js),
 // merged into the map and saved with it. A login refill can be dozens at
 // once, so the repaint waits for the next frame.
+let reliefSeq = 0;   // the last host-numbered patch merged into this map
 function applyRelief(frame) {
+  if (frame && Number.isInteger(frame.seq) && frame.seq > reliefSeq) reliefSeq = frame.seq;
   const p = decodePatch(frame);
   if (!p) return false;
   return mergePatch(map, p, wraps.get(p.area) || null);
