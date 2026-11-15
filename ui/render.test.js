@@ -999,7 +999,7 @@ describe("draw: region patches", () => {
     expect(calls).toContainEqual(["fill", regionColor("r", 0.18)]);
   });
 
-  it("draws an off-grid patch closed, from a cache kept until the patch changes", () => {
+  it("draws an off-grid patch closed, from a cache kept until the patch changes (not on a pan)", () => {
     const m = createMap();
     const rs = [[0.3, 0], [1.6, 0.4], [0.9, 1.5]].map(([x, y]) => addRoom(m, { key: `${x}${y}`, coords: { x, y, z: 0 } }));
     for (const r of rs) r.region = "q";
@@ -1014,8 +1014,14 @@ describe("draw: region patches", () => {
     expect(made).toBe(2);
     withCanvas(() => drawn(computeLayout(m, { cx: 200, cy: 150, scale: 40 })));
     expect(made).toBe(2);   // same patch, same view: not rebuilt
-    withCanvas(() => drawn(computeLayout(m, { cx: 210, cy: 150, scale: 40 })));
-    expect(made).toBe(4);   // moved: rebuilt
+    const panned = withCanvas(() => drawn(computeLayout(m, { cx: 210, cy: 150, scale: 40 })));
+    expect(made).toBe(2);   // panned: the same mask, drawn 10 px on
+    expect(panned.find((c) => c[0] === "drawImage")[2] - imgs[0][2]).toBeCloseTo(10);
+    withCanvas(() => drawn(computeLayout(m, { cx: 390, cy: 150, scale: 40 })));
+    expect(made).toBe(4);   // panned past what was built: built again
+    rs[1].coords.x = 1.9;
+    withCanvas(() => drawn(computeLayout(m, { cx: 390, cy: 150, scale: 40 })));
+    expect(made).toBe(6);   // the patch changed: built again
   });
 
   it("falls back to the plain path where there's no canvas", () => {

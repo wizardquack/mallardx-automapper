@@ -9,7 +9,7 @@ import {
   fillColor, roomGlyph, regionColor, regionName, inkOn, envColor, areaRegionColor, areaRegionType,
   elevationRange, shadeAmount, shadeColor, exitStyle, strongerStyle,
 } from "./annotate.js";
-import { reliefArea, paintRelief, makeCanvas } from "./relief.js";
+import { reliefArea, paintRelief, makeCanvas, RELIEF_MARGIN, RELIEF_MARGIN_MIN } from "./relief.js";
 import { CLOSE_RADIUS, closedAlpha, closeBox, closeStep, closedReach } from "./closing.js";
 import { areaSpacing, NO_SPACING } from "./spacing.js";
 
@@ -163,7 +163,10 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
 
   const { patches, regions } = regionLayout(map, rooms, joins, viewArea, scale, sp);
   const relief = reliefView(map, onFloor, viewArea, z, anchor, cx, cy, scale, shade, sp.spacing);
-  return { rooms, exits, stubs, patches, regions, elevation, relief, scale, spacing: sp.spacing };
+  // Where map point (0, 0) is drawn: what's built in map pixels (relief,
+  // closed patches) is drawn offset by it, so a pan only moves it.
+  const origin = { x: cx - anchor.coords.x * scale, y: cy - anchor.coords.y * scale };
+  return { rooms, exits, stubs, patches, regions, elevation, relief, scale, spacing: sp.spacing, origin };
 }
 
 // The relief to draw for this floor: the area's grid for it, if any, and the
@@ -648,19 +651,35 @@ function tracePatch(ctx, p) {
 // An off-grid patch with its holes and narrow dents closed (closing.js): the
 // closed shape as a soft-edged mask, with the patch's own path filled over
 // it so the outline away from the gaps is the crisp vector one, tinted, kept
-// per region and redrawn only when the patch, the view or the colour
-// changes. False where there's no canvas to build it on (tests).
-const closedCache = new Map();   // region → { key, canvas, box }
+// per region. It's built in map pixels over the view and a margin
+// (relief.js reliefExtent's), so a pan only moves it; built again when the
+// patch (in map pixels), the zoom or the colour changes, or the view leaves
+// what was built. False where there's no canvas to build it on (tests).
+const closedCache = new Map();   // region → { key, ext, canvas, box }
 let closedSeen = new Set();
-function drawClosedPatch(ctx, p, { width, height, ratio }) {
+function drawClosedPatch(ctx, p, { width, height, ratio, origin }) {
   const r = CLOSE_RADIUS * p.cell;
   const color = regionColor(p.region, 1, p.color);
-  const key = patchKey(p, width, height, ratio, color);
+  const o = origin || { x: 0, y: 0 };
+  const key = patchKey(p, o, ratio, color);
   closedSeen.add(p.region);
+  const vx = -o.x, vy = -o.y;   // the view's top-left in map px
   let hit = closedCache.get(p.region);
-  if (!hit || hit.key !== key) {
-    hit = { key, canvas: null, box: null };
-    const box = closeBox(p, r, width, height);
+  const e = hit && hit.ext;
+  if (!hit || hit.key !== key
+      || vx < e.x0 || vy < e.y0 || vx + width > e.x0 + e.w || vy + height > e.y0 + e.h) {
+    const m = Math.max(RELIEF_MARGIN_MIN, Math.round(Math.max(width, height) * RELIEF_MARGIN));
+    const ext = { x0: Math.floor(vx - m), y0: Math.floor(vy - m) };
+    ext.w = Math.ceil(vx + width + m) - ext.x0; ext.h = Math.ceil(vy + height + m) - ext.y0;
+    hit = { key, ext, canvas: null, box: null };
+    // The patch in the extent's px from its corner; closed out to 2r past it.
+    const dx = o.x + ext.x0, dy = o.y + ext.y0;
+    const q = {
+      ...p,
+      nodes: p.nodes.map((n) => ({ px: n.px - dx, py: n.py - dy })),
+      bands: p.bands.map((b) => ({ x1: b.x1 - dx, y1: b.y1 - dy, x2: b.x2 - dx, y2: b.y2 - dy })),
+    };
+    const box = closeBox(q, r, ext.w, ext.h);
     if (box) {
       const bw = box.x1 - box.x0, bh = box.y1 - box.y0;
       const ds = closeStep(r, bw, bh);
@@ -668,7 +687,7 @@ function drawClosedPatch(ctx, p, { width, height, ratio }) {
       const small = makeCanvas(w, h);
       const big = makeCanvas(Math.max(1, Math.round(bw * ratio)), Math.max(1, Math.round(bh * ratio)));
       if (!small || !big) return false;
-      const alpha = closedAlpha(p, { x0: box.x0, y0: box.y0, w, h }, ds, r);
+      const alpha = closedAlpha(q, { x0: box.x0, y0: box.y0, w, h }, ds, r);
       const sg = small.getContext("2d");
       const img = sg.createImageData(w, h);
       for (let k = 0; k < alpha.length; k++) {
@@ -682,7 +701,7 @@ function drawClosedPatch(ctx, p, { width, height, ratio }) {
       if ("imageSmoothingQuality" in g) g.imageSmoothingQuality = "high";
       g.drawImage(small, 0, 0, w * ds * sx, h * ds * sy);
       g.setTransform(sx, 0, 0, sy, -box.x0 * sx, -box.y0 * sy);
-      tracePatch(g, p);
+      tracePatch(g, q);
       g.fillStyle = "#fff";
       g.fill("nonzero");
       g.setTransform(1, 0, 0, 1, 0, 0);
@@ -695,21 +714,25 @@ function drawClosedPatch(ctx, p, { width, height, ratio }) {
     closedCache.set(p.region, hit);
   }
   if (hit.canvas) {
-    const { box } = hit;
+    const { box, ext } = hit;
+    const snap = (v) => Math.round(v * ratio) / ratio;
     ctx.save();
     ctx.globalAlpha = PATCH_ALPHA;
-    ctx.drawImage(hit.canvas, box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+    ctx.drawImage(hit.canvas, snap(box.x0 + ext.x0 + o.x), snap(box.y0 + ext.y0 + o.y), hit.canvas.width / ratio, hit.canvas.height / ratio);
     ctx.restore();
   }
   return true;
 }
 
-// What a closed patch is drawn from, as a string, for its cache.
-function patchKey(p, width, height, ratio, color) {
-  const parts = [width, height, ratio, color, p.size, p.band];
-  for (const n of p.nodes) parts.push(n.px, n.py);
+// What a closed patch is drawn from, as a string, for its cache: its shape
+// in map pixels (its px less the view's origin, to a hundredth), so a pan
+// doesn't change it.
+const q2 = (v) => Math.round(v * 100);
+function patchKey(p, o, ratio, color) {
+  const parts = [ratio, color, p.size, p.band, p.cell];
+  for (const n of p.nodes) parts.push(q2(n.px - o.x), q2(n.py - o.y));
   parts.push("|");
-  for (const b of p.bands) parts.push(b.x1, b.y1, b.x2, b.y2);
+  for (const b of p.bands) parts.push(q2(b.x1 - o.x), q2(b.y1 - o.y), q2(b.x2 - o.x), q2(b.y2 - o.y));
   return parts.join(",");
 }
 
@@ -760,14 +783,16 @@ export function knockoutShapes(layout, half) {
 }
 
 // The halo as paintRelief's knockout: { key, draw(g) }, the key changing only
-// when the shapes do. Its edge is softened by clearing a little wider at
-// part strength first.
+// when the shapes do in map pixels (their px less the view's origin, to a
+// hundredth), so not on a pan. Its edge is softened by clearing a little
+// wider at part strength first.
 const HALO_SOFT = [[1.3, 0.35], [1.12, 0.55], [1, 1]];   // [grow, alpha]
 function contourKnockout(layout, half) {
   const k = knockoutShapes(layout, half);
+  const o = layout.origin || { x: 0, y: 0 };
   const parts = [k.width];
-  for (const d of k.discs) parts.push(d.x, d.y, d.r);
-  for (const path of k.paths) { parts.push("|"); for (const q of path) parts.push(q.x, q.y); }
+  for (const d of k.discs) parts.push(q2(d.x - o.x), q2(d.y - o.y), d.r);
+  for (const path of k.paths) { parts.push("|"); for (const q of path) parts.push(q2(q.x - o.x), q2(q.y - o.y)); }
   return {
     key: parts.join(","),
     draw(g) {
@@ -867,7 +892,7 @@ export function draw(ctx, layout, { roomSize, colors, labels = true, size = null
   const cv = ctx.canvas;
   const width = size ? size.width : cv ? cv.width / ratio : 0;
   const height = size ? size.height : cv ? cv.height / ratio : 0;
-  const view = width > 0 && height > 0 ? { width, height, ratio } : null;
+  const view = width > 0 && height > 0 ? { width, height, ratio, origin: layout.origin } : null;
 
   // Ground relief first, under the region patches and everything else.
   let relief = null;

@@ -500,9 +500,9 @@ describe("painting: contour layer, ink and halo (0.13.1)", () => {
     anchor: { x: 0, y: 0 }, cx: 100, cy: 100, scale: 40, roomsSig: "t" };
   const target = () => {
     const log = [];
-    return { log, getTransform: () => ({ a: 1 }), drawImage: (cv) => log.push(cv) };
+    return { log, getTransform: () => ({ a: 1 }), drawImage: (cv, x, y) => log.push({ cv, x, y }), save() {}, restore() {} };
   };
-  const paint = (ctx, colors, knockout) => paintRelief(ctx, view, { width: 200, height: 200, groundColor: () => null, colors, knockout });
+  const paint = (ctx, colors, knockout, v = view) => paintRelief(ctx, v, { width: 200, height: 200, groundColor: () => null, colors, knockout });
   const withCanvas = (fn) => {
     const prev = globalThis.OffscreenCanvas;
     globalThis.OffscreenCanvas = FakeCanvas;
@@ -518,7 +518,7 @@ describe("painting: contour layer, ink and halo (0.13.1)", () => {
     expect(contourInterval(0, 80)).toBe(10);
   });
 
-  it("draws contours in a layer of their own, and cuts the halo from a copy of it alone", () => {
+  it("draws contours in a layer of their own, and cuts the halo from it alone", () => {
     withCanvas(() => {
       canvases.length = 0;
       resetReliefCache();
@@ -526,29 +526,47 @@ describe("painting: contour layer, ink and halo (0.13.1)", () => {
       let cuts = 0;
       const knockout = { key: "k1", draw: (g) => { cuts++; g.fillRect(0, 0, 10, 10); } };
       expect(paint(ctx, { halo: "#0b0e14" }, knockout).ink).toBe(CONTOUR_INK_DARK);
-      // Two drawn: ground and shading, then the cut contours.
+      // Two drawn: the shading (no ground colours here), then the contours.
       expect(ctx.log.length).toBe(2);
-      const [base, cut] = ctx.log;
-      const lines = canvases.find((cv) => cv.log.some((op) => op[0] === "stroke"));
-      expect(lines).toBeTruthy();
-      expect(lines).not.toBe(base);
-      expect(cut).not.toBe(lines);
-      // The ink is sepia.
+      const [shade, lines] = ctx.log.map((d) => d.cv);
       expect(lines.log.find((op) => op[0] === "stroke")[2]).toBe(CONTOUR_INK_DARK);
-      // The halo is cleared from the copy only: nothing else draws with
+      expect(shade.log.some((op) => op[0] === "stroke")).toBe(false);
+      // The halo is cleared from the contours only: nothing else draws with
       // destination-out, so ground and shading are never cut.
-      expect(cut.log.some((op) => op[0] === "fillRect" && op[1] === "destination-out")).toBe(true);
-      for (const cv of canvases) if (cv !== cut) expect(cv.log.some((op) => op[1] === "destination-out")).toBe(false);
+      expect(lines.log.some((op) => op[0] === "fillRect" && op[1] === "destination-out")).toBe(true);
+      for (const cv of canvases) if (cv !== lines) expect(cv.log.some((op) => op[1] === "destination-out")).toBe(false);
       expect(cuts).toBe(1);
       // Same view and halo: nothing rebuilt or re-cut, nothing new made.
       const made = canvases.length;
       paint(ctx, { halo: "#0b0e14" }, knockout);
       expect(cuts).toBe(1);
       expect(canvases.length).toBe(made);
-      // A new halo re-cuts into the same copy.
+      // A new halo re-cuts the same layer.
       paint(ctx, { halo: "#0b0e14" }, { ...knockout, key: "k2" });
       expect(cuts).toBe(2);
       expect(canvases.length).toBe(made);
+    });
+  });
+
+  it("on a pan only moves what it built, until the view leaves it", () => {
+    withCanvas(() => {
+      canvases.length = 0;
+      resetReliefCache();
+      let cuts = 0;
+      const knockout = { key: "k", draw: () => { cuts++; } };
+      const a = target();
+      paint(a, { halo: "#0b0e14" }, knockout);
+      const made = canvases.length;
+      // Panned 30 px right, 12 down: the same layers, drawn 30, 12 further on.
+      const b = target();
+      paint(b, { halo: "#0b0e14" }, knockout, { ...view, cx: view.cx + 30, cy: view.cy + 12 });
+      expect(canvases.length).toBe(made);
+      expect(cuts).toBe(1);
+      expect(b.log.map((d) => d.cv)).toEqual(a.log.map((d) => d.cv));
+      b.log.forEach((d, i) => { expect(d.x - a.log[i].x).toBeCloseTo(30); expect(d.y - a.log[i].y).toBeCloseTo(12); });
+      // Panned past the margin: built again round the new view.
+      paint(target(), { halo: "#0b0e14" }, knockout, { ...view, cx: view.cx + 250 });
+      expect(canvases.length).toBeGreaterThan(made);
     });
   });
 

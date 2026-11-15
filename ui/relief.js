@@ -399,7 +399,7 @@ export function reliefField(view, width, height) {
 
   if (grid) {
     const wc = wrapCells(wrapX, cell);
-    const ai = Math.round(anchor.x / cell);
+    const ai = Math.round((view.ringX != null ? view.ringX : anchor.x) / cell);
     for (let r = 0; r < rows; r++) {
       const j = -(k0 + r);
       for (let c = 0; c < cols; c++) {
@@ -427,14 +427,22 @@ export function reliefField(view, width, height) {
 
   if (rooms.length) {
     const near = any ? dilate(known, cols, rows, Math.ceil(FALLBACK_REACH * sp / cell)) : null;
-    // Distances below are in room spacings; buckets a spacing across.
+    // Distances below are in room spacings; buckets a spacing across, keyed
+    // by number, and the buckets within reach of a room's marked, so a cell
+    // far from every room is passed over at one look.
+    const reach = Math.ceil(INTERP_REACH);
+    const bkey = (bx, by) => (bx + 1048576) * 2097152 + (by + 1048576);
     const buckets = new Map();
     for (const rm of rooms) {
-      const key = `${Math.floor(rm.x / sp)},${Math.floor(rm.y / sp)}`;
+      const key = bkey(Math.floor(rm.x / sp), Math.floor(rm.y / sp));
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key).push(rm);
     }
-    const reach = Math.ceil(INTERP_REACH);
+    const reachable = new Set();
+    for (const list of buckets.values()) {
+      const bx = Math.floor(list[0].x / sp), by = Math.floor(list[0].y / sp);
+      for (let dx = -reach; dx <= reach; dx++) for (let dy = -reach; dy <= reach; dy++) reachable.add(bkey(bx + dx, by + dy));
+    }
     const near_ = [];   // rooms within INTERP_REACH of the cell: [d, ux, uy]
     for (let r = 0; r < rows; r++) {
       const y = (k0 + r) * cell;
@@ -443,11 +451,12 @@ export function reliefField(view, width, height) {
         if (known[k] || (near && near[k])) continue;
         const x = (i0 + c) * cell;
         const bx = Math.floor(x / sp), by = Math.floor(y / sp);
+        if (!reachable.has(bkey(bx, by))) continue;
         let sw = 0, swe = 0, dmin = Infinity;
         near_.length = 0;
         for (let dx = -reach; dx <= reach; dx++) {
           for (let dy = -reach; dy <= reach; dy++) {
-            const list = buckets.get(`${bx + dx},${by + dy}`);
+            const list = buckets.get(bkey(bx + dx, by + dy));
             if (!list) continue;
             for (const rm of list) {
               const dr = Math.hypot(rm.x - x, rm.y - y), d = dr / sp;
@@ -709,68 +718,149 @@ export function makeCanvas(w, h) {
   return null;
 }
 
-let cache = null;   // { key, canvas, lines, info, cut, cutKey }
+// The relief is built in map pixels (a map point's x × scale), over the view
+// and a margin round it, so a pan only moves it: it's built again on a zoom,
+// a change of floor, area, data or theme, or once the view leaves what was
+// built. RELIEF_MARGIN is that margin, as a share of the canvas's larger
+// side (at least RELIEF_MARGIN_MIN px), each way.
+export const RELIEF_MARGIN = 0.3;
+export const RELIEF_MARGIN_MIN = 160;
+
+let cache = null;   // { key, ext, built, cut, cutKey }
+
+// Where map point (0, 0) is drawn on the canvas, in CSS px, for a view.
+export function viewOrigin(view) {
+  return { x: view.cx - view.anchor.x * view.scale, y: view.cy - view.anchor.y * view.scale };
+}
 
 // Paint the relief for `view` (see reliefField) under everything else:
-// ground and shading in one layer, contours in another, each rendered once
-// at the canvas's size and reused until the view or the data changes.
-// `groundColor(id)` is a ground id's "#rrggbb"; `colors.halo` (the
-// background) picks the contour ink. `knockout` ({ key, draw(g) }, or null)
-// clears the contours round rooms and along exits, so they're never taken
-// for one: draw(g) paints, in CSS px, what to clear, and is called only when
-// its `key` or the layers change, into a copy of the contour layer kept for
-// it (ground and shading are never cleared). Returns { interval, estimated,
-// measured, grounds: [id], ink } for the legend (ink: the contours' colour),
-// or null when nothing was drawn.
+// ground and shading from one pixel per cell, smoothed as they're drawn, and
+// contours in a layer of their own, built once over the view and a margin
+// (in map pixels) and reused, moved with the map, until the view leaves it
+// or the data changes. `groundColor(id)` is a ground id's "#rrggbb";
+// `colors.halo` (the background) picks the contour ink. `knockout` ({ key,
+// draw(g) }, or null) clears the contours round rooms and along exits, so
+// they're never taken for one: draw(g) paints, in the canvas's CSS px as the
+// view is now, what to clear; `key` names those shapes in map pixels, so it
+// holds while the map is only panned. It's cut into the contour layer when
+// its key or the layer changes (ground and shading are never cut). Returns {
+// interval, estimated, measured, grounds: [id], ink } for the legend (ink:
+// the contours' colour), or null when nothing was drawn.
 export function paintRelief(ctx, view, { width, height, groundColor, colors, knockout = null }) {
   const ratio = (ctx.getTransform && ctx.getTransform().a) || 1;
   const grounds = view.grid ? view.grid.ids.map((id) => groundColor(id)).join(",") : "";
   const key = JSON.stringify([
-    view.grid ? view.grid.rev : 0, view.roomsSig || "", view.wrapX || 0, view.spacing || 1,
-    view.anchor.x, view.anchor.y, view.cx, view.cy, view.scale, width, height, ratio,
-    colors.halo, grounds,
+    view.grid ? view.grid.rev : 0, view.roomsSig || "", view.wrapX || 0,
+    // On a ring what's drawn depends on where the anchor is (the turn
+    // nearest it); elsewhere it's all in map pixels.
+    view.wrapX ? view.anchor.x : 0,
+    view.spacing || 1, view.scale, ratio, colors.halo, grounds,
   ]);
-  if (!cache || cache.key !== key) {
+  const o = viewOrigin(view);
+  const vx = -o.x, vy = -o.y;   // the view's top-left, in map px
+  const e = cache && cache.ext;
+  if (!cache || cache.key !== key
+      || vx < e.x0 || vy < e.y0 || vx + width > e.x0 + e.w || vy + height > e.y0 + e.h) {
     const bg = rgbOf(colors.halo);
     const lightBg = !!bg && 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2] > 140;
-    const built = buildLayer(view, width, height, ratio, groundColor, lightBg);
-    // The cut copy of the contours is kept across rebuilds while its size holds.
-    const cut = cache && cache.cut && built.lines && cache.cut.width === built.lines.width
-      && cache.cut.height === built.lines.height ? cache.cut : null;
-    cache = { key, ...built, cut, cutKey: null };
+    const ext = reliefExtent(view, vx, vy, width, height);
+    // The cut layer is kept across rebuilds while its size holds.
+    const old = cache && cache.cut;
+    const built = buildLayer(view, ext, ratio, groundColor, lightBg);
+    const cut = old && built.W === old.width && built.H === old.height ? old : null;
+    cache = { key, ext, built, cut, cutKey: null };
   }
-  if (cache.canvas) ctx.drawImage(cache.canvas, 0, 0, width, height);
-  if (cache.lines) {
-    let lines = cache.lines;
-    if (knockout) {
-      if (cache.cutKey !== knockout.key || !cache.cut) {
-        cache.cut = cache.cut || makeCanvas(lines.width, lines.height);
-        const g = cache.cut.getContext("2d");
-        g.setTransform(1, 0, 0, 1, 0, 0);
-        g.globalCompositeOperation = "copy";
-        g.globalAlpha = 1;
-        g.drawImage(lines, 0, 0);
-        g.globalCompositeOperation = "destination-out";
-        g.setTransform(lines.width / width, 0, 0, lines.height / height, 0, 0);
-        knockout.draw(g);
-        g.globalCompositeOperation = "source-over";
-        g.globalAlpha = 1;
-        g.setTransform(1, 0, 0, 1, 0, 0);
-        cache.cutKey = knockout.key;
-      }
-      lines = cache.cut;
+  const { built, ext } = cache;
+  if (!built.info) return null;
+  if (built.ground || built.shade) {
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    if ("imageSmoothingQuality" in ctx) ctx.imageSmoothingQuality = "high";
+    const p = built.place;
+    for (const img of [built.ground, built.shade]) {
+      if (img) ctx.drawImage(img, p.x + o.x, p.y + o.y, p.w, p.h);
     }
-    ctx.drawImage(lines, 0, 0, width, height);
+    ctx.restore();
   }
-  return cache.info;
+  if (built.contours.length) {
+    const ckey = knockout ? knockout.key : null;
+    if (!cache.cut || cache.cutKey !== ckey) {
+      cache.cut = cache.cut || makeCanvas(built.W, built.H);
+      if (cache.cut) {
+        strokeContours(cache.cut, built, ratio);
+        if (knockout) {
+          const g = cache.cut.getContext("2d");
+          g.globalCompositeOperation = "destination-out";
+          // The knockout's px are the canvas's now; the layer's start at the
+          // extent's corner.
+          g.setTransform(ratio, 0, 0, ratio, -(o.x + ext.x0) * ratio, -(o.y + ext.y0) * ratio);
+          knockout.draw(g);
+          g.globalCompositeOperation = "source-over";
+          g.globalAlpha = 1;
+          g.setTransform(1, 0, 0, 1, 0, 0);
+        }
+        cache.cutKey = ckey;
+      }
+    }
+    if (cache.cut) {
+      // On whole device pixels, so the thin lines aren't resampled.
+      const snap = (v) => Math.round(v * ratio) / ratio;
+      ctx.drawImage(cache.cut, snap(ext.x0 + o.x), snap(ext.y0 + o.y), built.W / ratio, built.H / ratio);
+    }
+  }
+  return built.info;
 }
 
 // For tests: forget the cached layers.
 export function resetReliefCache() { cache = null; }
 
-function buildLayer(view, width, height, ratio, groundColor, lightBg) {
-  const field = reliefField(view, width, height);
-  if (!field) return { canvas: null, lines: null, info: null };
+// What to build round a view whose top-left is (vx, vy) in map px: the view
+// and the margin, held to what the field's lattice allows (MAX_FIELD cells
+// a side). { x0, y0, w, h } in map px, whole.
+export function reliefExtent(view, vx, vy, width, height) {
+  const sp = view.spacing > 0 ? view.spacing : 1;
+  const cellPx = (view.grid ? view.grid.cell : FALLBACK_CELL * sp) * view.scale;
+  let m = Math.max(RELIEF_MARGIN_MIN, Math.round(Math.max(width, height) * RELIEF_MARGIN));
+  const most = (MAX_FIELD - 8) * cellPx;
+  m = Math.max(0, Math.min(m, Math.floor((most - Math.max(width, height)) / 2)));
+  const x0 = Math.floor(vx - m), y0 = Math.floor(vy - m);
+  return { x0, y0, w: Math.ceil(vx + width + m) - x0, h: Math.ceil(vy + height + m) - y0 };
+}
+
+// Stroke the contours (buildLayer's) into `cv`, clearing it first.
+function strokeContours(cv, built, ratio) {
+  const g = cv.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalCompositeOperation = "source-over";
+  g.globalAlpha = 1;
+  g.clearRect(0, 0, cv.width, cv.height);
+  g.setTransform(ratio, 0, 0, ratio, 0, 0);
+  g.lineCap = "round";
+  g.strokeStyle = built.ink;
+  for (const c of built.contours) {
+    g.lineWidth = c.width;
+    g.globalAlpha = c.alpha;
+    g.beginPath();
+    const s = c.segs;
+    for (let i = 0; i < s.length; i += 4) { g.moveTo(s[i], s[i + 1]); g.lineTo(s[i + 2], s[i + 3]); }
+    g.stroke();
+  }
+  g.globalAlpha = 1;
+}
+
+// The field over the extent `ext` (map px), as images of a pixel a cell
+// (ground, shade: canvases, or null) to be drawn at `place` (map px, before
+// the view's origin), and the contours as strokes in the extent's px from its
+// corner ([{ width, alpha, segs: [x1, y1, x2, y2, …] }]), for a W×H device-px
+// layer. `info` is null where there's nothing to draw.
+function buildLayer(view, ext, ratio, groundColor, lightBg) {
+  const W = Math.max(1, Math.round(ext.w * ratio)), H_ = Math.max(1, Math.round(ext.h * ratio));
+  const none = { info: null, ground: null, shade: null, contours: [], W, H: H_ };
+  // The field over the extent: the view as if its corner were the canvas's,
+  // with the ring's turn still the anchor's.
+  const fview = { ...view, anchor: { x: 0, y: 0 }, cx: -ext.x0, cy: -ext.y0, ringX: view.anchor.x };
+  const field = reliefField(fview, ext.w, ext.h);
+  if (!field) return none;
   const interval = contourInterval(field.min, field.max);
   const info = {
     interval,
@@ -779,30 +869,23 @@ function buildLayer(view, width, height, ratio, groundColor, lightBg) {
     measured: field.known.some((v) => v),
     grounds: [...new Set([...field.G].filter((g) => g !== UNKNOWN_G))].map((g) => field.ids[g]).filter(Boolean),
   };
-  const W = Math.max(1, Math.round(width * ratio)), Ht = Math.max(1, Math.round(height * ratio));
-  const layer = makeCanvas(W, Ht);
-  const small = makeCanvas(field.cols, field.rows);
-  if (!layer || !small) return { canvas: null, lines: null, info };
-  const g = layer.getContext("2d");
-  g.setTransform(ratio, 0, 0, ratio, 0, 0);
-  const { i0, k0, cols, rows, cell, H, G, cov, est } = field;
-  const { anchor, cx, cy, scale } = view;
-  const X = (c) => cx + ((i0 + c) * cell - anchor.x) * scale;
-  const Y = (r) => cy + ((k0 + r) * cell - anchor.y) * scale;
+  const { i0, k0, cols, rows, cell, H, G, cov, est, known } = field;
+  const { scale } = view;
   const n = cols * rows;
-
-  // One pixel per cell, scaled up with smoothing: soft ground and shading.
   // Pixel c's centre is cell c's, so the image starts half a cell before.
-  const sg = small.getContext("2d");
-  const blit = (img) => {
-    sg.putImageData(img, 0, 0);
-    g.imageSmoothingEnabled = true;
-    if ("imageSmoothingQuality" in g) g.imageSmoothingQuality = "high";
-    g.drawImage(small, X(-0.5), Y(-0.5), cols * cell * scale, rows * cell * scale);
+  const place = { x: (i0 - 0.5) * cell * scale, y: (k0 - 0.5) * cell * scale, w: cols * cell * scale, h: rows * cell * scale };
+  const image = (bytes) => {
+    const cv = makeCanvas(cols, rows);
+    if (!cv) return null;
+    const g = cv.getContext("2d");
+    const img = g.createImageData(cols, rows);
+    img.data.set(bytes);
+    g.putImageData(img, 0, 0);
+    return cv;
   };
-  const { known } = field;
+
+  let ground = null;
   const palette = field.ids.map((id) => rgbOf(groundColor(id)));
-  const toImage = (bytes) => { const img = sg.createImageData(cols, rows); img.data.set(bytes); return img; };
   if (palette.some(Boolean)) {
     const rgba = new Float32Array(n * 4);
     const has = new Uint8Array(n);
@@ -812,60 +895,52 @@ function buildLayer(view, width, height, ratio, groundColor, lightBg) {
       has[k] = 1;
       rgba[k * 4] = rgb[0]; rgba[k * 4 + 1] = rgb[1]; rgba[k * 4 + 2] = rgb[2]; rgba[k * 4 + 3] = GROUND_ALPHA;
     }
-    blit(toImage(feather(rgba, has, cols, rows)));
+    ground = image(feather(rgba, has, cols, rows));
   }
 
-  const shade = hillshade(field, (interval || 1) * 0.6);
+  const shadeAt = hillshade(field, (interval || 1) * 0.6);
+  let shade;
   {
     const rgba = new Float32Array(n * 4);
     for (let k = 0; k < n; k++) {
-      const t = shade[k];
+      const t = shadeAt[k];
       if (!(known[k] || est[k])) continue;
       const v = t > 0 ? 255 : 0;
       rgba[k * 4] = v; rgba[k * 4 + 1] = v; rgba[k * 4 + 2] = v;
       const alpha = t > 0 ? SHADE_LIGHT_ALPHA * (lightBg ? LIGHT_BG_LIGHT : 1) : SHADE_DARK_ALPHA * (lightBg ? LIGHT_BG_DARK : 1);
       rgba[k * 4 + 3] = Math.abs(t) * alpha * (est[k] ? cov[k] : 1);
     }
-    blit(toImage(feather(rgba, known, cols, rows, est)));
+    shade = image(feather(rgba, known, cols, rows, est));
   }
 
-  // Contours, in their own layer (so the halo round rooms and exits can be
-  // cut from them alone): thin, sepia, every fifth a little stronger; faded
-  // with the known region's edge.
-  let lines = null;
+  // Contours: thin, sepia, every fifth a little stronger; faded with the
+  // known region's edge, bucketed by how faded so each bucket is one stroke.
+  const contours = [];
   if (interval) {
-    lines = makeCanvas(W, Ht);
-    const g = lines.getContext("2d");
-    g.setTransform(ratio, 0, 0, ratio, 0, 0);
-    const ink = contourInk(lightBg);
-    const levels = [];
-    for (let v = Math.ceil(field.min / interval) * interval; v <= field.max; v += interval) levels.push(v);
+    const X = (c) => (i0 + c) * cell * scale - ext.x0;
+    const Y = (r) => (k0 + r) * cell * scale - ext.y0;
     const covAt = (c, r) => cov[Math.min(rows - 1, Math.round(r)) * cols + Math.min(cols - 1, Math.round(c))];
-    g.lineCap = "round";
-    g.strokeStyle = ink;
-    for (const level of levels) {
-      const major = Math.round(level / interval) % 5 === 0;
-      const segs = contourSegments(H, cols, rows, level, cov);
+    for (let v = Math.ceil(field.min / interval) * interval; v <= field.max; v += interval) {
+      const major = Math.round(v / interval) % 5 === 0;
+      const segs = contourSegments(H, cols, rows, v, cov);
       if (!segs.length) continue;
-      g.lineWidth = major ? 1.1 : 0.75;
-      // Bucketed by how faded, so each bucket is one stroke.
       const buckets = [[], [], [], []];
-      for (const s of segs) {
-        const f = Math.min(covAt(s[0], s[1]), covAt(s[2], s[3]));
+      for (const sg of segs) {
+        const f = Math.min(covAt(sg[0], sg[1]), covAt(sg[2], sg[3]));
         if (f <= 0.05) continue;
-        buckets[Math.min(3, Math.floor(f * 4))].push(s);
+        buckets[Math.min(3, Math.floor(f * 4))].push(X(sg[0]), Y(sg[1]), X(sg[2]), Y(sg[3]));
       }
       buckets.forEach((list, b) => {
         if (!list.length) return;
-        g.globalAlpha = (major ? INDEX_CONTOUR_ALPHA : CONTOUR_ALPHA) * ((b + 1) / 4);
-        g.beginPath();
-        for (const s of list) { g.moveTo(X(s[0]), Y(s[1])); g.lineTo(X(s[2]), Y(s[3])); }
-        g.stroke();
+        contours.push({
+          width: major ? 1.1 : 0.75,
+          alpha: (major ? INDEX_CONTOUR_ALPHA : CONTOUR_ALPHA) * ((b + 1) / 4),
+          segs: Float32Array.from(list),
+        });
       });
     }
-    g.globalAlpha = 1;
   }
-  return { canvas: layer, lines, info };
+  return { info, ground, shade, place, contours, ink: contourInk(lightBg), W, H: H_ };
 }
 
 // ── Deleting areas ───────────────────────────────────────────────────────────
