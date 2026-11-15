@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createMap, addRoom, linkExit, setCurrent, addArea } from "./graph.js";
 import { exitStroke, climbTicks } from "./render.js";
-import { shadeColor, inkOn } from "./annotate.js";
+import { shadeColor, inkOn, regionColor } from "./annotate.js";
 import { setTagDefs } from "./graph.js";
 import { bandQuad, computeLayout, envColor, draw, fitText, glyphOrigin, roomsInRect, exitPort, clearOf, exitGeometry, oneWayArrow, cardAt, NAME_LABEL_MIN_SCALE } from "./render.js";
 import { setTerrains } from "./graph.js";
@@ -262,7 +262,7 @@ describe("computeLayout: region patches", () => {
     setCurrent(m, rs[0].id);
     const L = computeLayout(m, { cx: 0, cy: 0, scale: 10 });
     expect(L.patches).toEqual([{
-      region: "r", color: null, shape: "square", size: 5, band: 5,
+      region: "r", color: null, shape: "square", size: 5, band: 5, cell: 10,
       nodes: [{ px: 0, py: 0 }, { px: 10, py: 0 }, { px: 0, py: 10 }, { px: 10, py: 10 }],
       bands: [],
     }]);
@@ -297,7 +297,7 @@ describe("computeLayout: region patches", () => {
   it("off a grid, discs joined by a band along each exit, never across an unlinked gap", () => {
     const m = createMap();
     // Open land: km coords, odd spacing and angles.
-    const pts = { a: [4.8, 1], b: [6.1, 1.7], c: [6.9, 3.2], far: [9.4, 3.3] };
+    const pts = { a: [4.8, 1], b: [6.1, 1.7], c: [6.9, 3.2], far: [9.8, 3.3] };
     const R = {};
     for (const [k, [x, y]] of Object.entries(pts)) { R[k] = addRoom(m, { key: k, coords: { x, y, z: 0 } }); R[k].region = "downs"; }
     linkExit(m, R.a.id, "se", R.b.id); linkExit(m, R.b.id, "nw", R.a.id);
@@ -310,9 +310,23 @@ describe("computeLayout: region patches", () => {
     expect(p.bands.length).toBe(2);
     const at = (k) => L.rooms.find((r) => r.id === R[k].id);
     expect(p.bands[0]).toEqual({ x1: at("a").px, y1: at("a").py, x2: at("b").px, y2: at("b").py });
-    // `far` is 2.5 from c with no exit: its own piece, with its own label.
+    // `far` is 2.9 from c with no exit, past where closing would join them:
+    // its own piece, with its own label.
     expect(p.bands.some((b) => b.x2 === at("far").px || b.x1 === at("far").px)).toBe(false);
     expect(L.regions.length).toBe(2);
+  });
+
+  it("off a grid, rooms near enough that closing joins them are one piece (labelled once)", () => {
+    const m = createMap();
+    const area = addArea(m, { key: "t" });
+    const a = addRoom(m, { key: "a", coords: { x: 0.3, y: 0, z: 0 }, areaId: area.id });
+    const b = addRoom(m, { key: "b", coords: { x: 2.7, y: 0.4, z: 0 }, areaId: area.id });   // 2.43 apart
+    for (const r of [a, b]) r.region = "r";
+    setCurrent(m, a.id);
+    expect(computeLayout(m, { cx: 0, cy: 0, scale: 40 }).regions.length).toBe(1);
+    // A land region isn't drawn, so isn't closed: only touching discs join.
+    area.regionTypes = { r: "land" };
+    expect(computeLayout(m, { cx: 0, cy: 0, scale: 40 }).regions.length).toBe(2);
   });
 
   it("off a grid, discs that overlap are one piece without an exit", () => {
@@ -930,6 +944,71 @@ describe("computeLayout: game glyphs", () => {
     a.tags = ["market", "smithy"];
     const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
     expect(L.rooms.find((r) => r.id === a.id).glyph).toBe("S");
+  });
+});
+
+describe("draw: region patches", () => {
+  // A stand-in OffscreenCanvas, counting how many are made.
+  let made = 0;
+  class FakeCanvas {
+    constructor(w, h) { this.width = w; this.height = h; made++; }
+    getContext() {
+      const noop = () => {};
+      return {
+        createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+        putImageData: noop, drawImage: noop, setTransform: noop, beginPath: noop, moveTo: noop,
+        lineTo: noop, arc: noop, closePath: noop, fill: noop, fillRect: noop,
+      };
+    }
+  }
+  const withCanvas = (fn) => {
+    const prev = globalThis.OffscreenCanvas;
+    globalThis.OffscreenCanvas = FakeCanvas;
+    try { return fn(); } finally { if (prev) globalThis.OffscreenCanvas = prev; else delete globalThis.OffscreenCanvas; }
+  };
+  const drawn = (L) => {
+    const ctx = recordingCtx();
+    ctx.save = () => {}; ctx.restore = () => {};
+    ctx.drawImage = (...a) => ctx.calls.push(["drawImage", ctx.globalAlpha, ...a.slice(1)]);
+    draw(ctx, L, { roomSize: 16, colors: {}, labels: false, size: { width: 400, height: 300 } });
+    return ctx.calls;
+  };
+
+  it("fills a grid patch with its path, as ever, even with a canvas to hand", () => {
+    const m = createMap();
+    const rs = [[0, 0], [1, 0], [0, 1]].map(([x, y]) => addRoom(m, { key: `${x}${y}`, coords: { x, y, z: 0 } }));
+    for (const r of rs) r.region = "r";
+    setCurrent(m, rs[0].id);
+    const calls = withCanvas(() => drawn(computeLayout(m, { cx: 200, cy: 150, scale: 40 })));
+    expect(calls.filter((c) => c[0] === "drawImage")).toEqual([]);
+    expect(calls).toContainEqual(["fill", regionColor("r", 0.18)]);
+  });
+
+  it("draws an off-grid patch closed, from a cache kept until the patch changes", () => {
+    const m = createMap();
+    const rs = [[0.3, 0], [1.6, 0.4], [0.9, 1.5]].map(([x, y]) => addRoom(m, { key: `${x}${y}`, coords: { x, y, z: 0 } }));
+    for (const r of rs) r.region = "q";
+    setCurrent(m, rs[0].id);
+    made = 0;
+    const L = computeLayout(m, { cx: 200, cy: 150, scale: 40 });
+    const calls = withCanvas(() => drawn(L));
+    const imgs = calls.filter((c) => c[0] === "drawImage");
+    expect(imgs.length).toBe(1);
+    expect(imgs[0][1]).toBe(0.18);
+    expect(calls.some((c) => c[0] === "fill")).toBe(false);
+    expect(made).toBe(2);
+    withCanvas(() => drawn(computeLayout(m, { cx: 200, cy: 150, scale: 40 })));
+    expect(made).toBe(2);   // same patch, same view: not rebuilt
+    withCanvas(() => drawn(computeLayout(m, { cx: 210, cy: 150, scale: 40 })));
+    expect(made).toBe(4);   // moved: rebuilt
+  });
+
+  it("falls back to the plain path where there's no canvas", () => {
+    const m = createMap();
+    const rs = [[0.3, 0], [1.6, 0.4]].map(([x, y]) => addRoom(m, { key: `${x}${y}`, coords: { x, y, z: 0 } }));
+    for (const r of rs) r.region = "q";
+    setCurrent(m, rs[0].id);
+    expect(drawn(computeLayout(m, { cx: 200, cy: 150, scale: 40 }))).toContainEqual(["fill", regionColor("q", 0.18)]);
   });
 });
 

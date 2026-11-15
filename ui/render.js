@@ -10,6 +10,7 @@ import {
   elevationRange, shadeAmount, shadeColor, exitStyle, strongerStyle,
 } from "./annotate.js";
 import { reliefArea, paintRelief } from "./relief.js";
+import { CLOSE_RADIUS, closedAlpha, closeBox, closeStep, closedReach } from "./closing.js";
 
 export { envColor };
 
@@ -459,14 +460,16 @@ function wrapStep(a, b) {
 // block, and a band a cell wide joins two rooms a diagonal or a cell apart.
 // Off a grid (open land placed by the server's km, rooms an odd 1.3 apart at
 // odd angles) it's a disc, and the bands are as wide, so the patch is a
-// rounded ribbon along the paths. A way across a ring's seam bands each end
+// rounded ribbon along the paths; where those ribbons ring open ground, or
+// leave a narrow dent, the gap is closed when it's drawn (closing.js), so a
+// patch reads as one piece of country rather than a net. A way across a ring's seam bands each end
 // out to where the other room comes round, as its line is drawn.
 //
 // A land region (regionType "land": a named piece of country, not a district)
 // has no patch, only its labels, laid out in pieces just the same.
 //
-// Labels: one per piece (rooms joined by a band, or whose shapes touch),
-// centred over it and just above its top row, so a region split by the view
+// Labels: one per piece (rooms joined by a band, or whose shapes touch or,
+// off a grid, are near enough that closing joins them), centred over it and just above its top row, so a region split by the view
 // or a ring's seam gets a label per piece.
 export const PATCH_SQUARE = 0.5;   // half a cell: the room's whole cell
 export const PATCH_ROUND = 0.6;    // the disc's radius, in cells
@@ -494,6 +497,7 @@ function regionLayout(map, rooms, joins, areaId, scale) {
       color: areaRegionColor(map, areaId, key),
       shape: grid ? "square" : "round",
       size: (grid ? PATCH_SQUARE : PATCH_ROUND) * scale,
+      cell: scale,
       band: (grid ? PATCH_SQUARE : PATCH_BAND_ROUND) * scale,
       nodes: [],
       bands: [],
@@ -534,13 +538,18 @@ function regionLayout(map, rooms, joins, areaId, scale) {
   // with walls between). Bucketed by two cells, so this isn't n².
   for (const rs of byRegion.values()) {
     const grid = gridOf.get(rs[0].region);
+    // A drawn round patch is closed (closing.js), which joins discs further
+    // apart than touching; a land region's isn't drawn, so its rooms join
+    // only where their discs would touch.
+    const reach = patchOf.has(rs[0].region) ? closedReach(PATCH_ROUND, CLOSE_RADIUS) : 2 * PATCH_ROUND;
     const touch = grid
       ? (a, b) => Math.abs(a.cell.x - b.cell.x) <= 1 + 1e-9 && Math.abs(a.cell.y - b.cell.y) <= 1 + 1e-9
-      : (a, b) => Math.hypot(a.cell.x - b.cell.x, a.cell.y - b.cell.y) <= 2 * PATCH_ROUND + 1e-9;
+      : (a, b) => Math.hypot(a.cell.x - b.cell.x, a.cell.y - b.cell.y) <= reach + 1e-9;
+    const bs = grid ? 2 : Math.max(2, Math.ceil(reach));
     const buckets = new Map();
     const bk = (x, y) => `${x},${y}`;
     for (const r of rs) {
-      const bx = Math.floor(r.cell.x / 2), by = Math.floor(r.cell.y / 2);
+      const bx = Math.floor(r.cell.x / bs), by = Math.floor(r.cell.y / bs);
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
           for (const o of buckets.get(bk(bx + dx, by + dy)) || []) if (touch(r, o)) union(r.id, o.id);
@@ -574,7 +583,14 @@ function regionLayout(map, rooms, joins, areaId, scale) {
 // clockwise, so under the nonzero rule where they overlap is still just
 // inside: one fill, no darker seams.
 const PATCH_ALPHA = 0.18;
-function drawPatch(ctx, p) {
+function drawPatch(ctx, p, view) {
+  if (p.shape === "round" && view && drawClosedPatch(ctx, p, view)) return;
+  tracePatch(ctx, p);
+  ctx.fillStyle = regionColor(p.region, PATCH_ALPHA, p.color);
+  ctx.fill("nonzero");
+}
+
+function tracePatch(ctx, p) {
   ctx.beginPath();
   const s = p.size;
   for (const n of p.nodes) {
@@ -603,8 +619,90 @@ function drawPatch(ctx, p) {
       ctx.closePath();
     }
   }
-  ctx.fillStyle = regionColor(p.region, PATCH_ALPHA, p.color);
-  ctx.fill("nonzero");
+}
+
+// An off-grid patch with its holes and narrow dents closed (closing.js): the
+// closed shape as a soft-edged mask, with the patch's own path filled over
+// it so the outline away from the gaps is the crisp vector one, tinted, kept
+// per region and redrawn only when the patch, the view or the colour
+// changes. False where there's no canvas to build it on (tests).
+const closedCache = new Map();   // region → { key, canvas, box }
+let closedSeen = new Set();
+function drawClosedPatch(ctx, p, { width, height, ratio }) {
+  const r = CLOSE_RADIUS * p.cell;
+  const color = regionColor(p.region, 1, p.color);
+  const key = patchKey(p, width, height, ratio, color);
+  closedSeen.add(p.region);
+  let hit = closedCache.get(p.region);
+  if (!hit || hit.key !== key) {
+    hit = { key, canvas: null, box: null };
+    const box = closeBox(p, r, width, height);
+    if (box) {
+      const bw = box.x1 - box.x0, bh = box.y1 - box.y0;
+      const ds = closeStep(r, bw, bh);
+      const w = Math.ceil(bw / ds), h = Math.ceil(bh / ds);
+      const small = makeCanvas(w, h);
+      const big = makeCanvas(Math.max(1, Math.round(bw * ratio)), Math.max(1, Math.round(bh * ratio)));
+      if (!small || !big) return false;
+      const alpha = closedAlpha(p, { x0: box.x0, y0: box.y0, w, h }, ds, r);
+      const sg = small.getContext("2d");
+      const img = sg.createImageData(w, h);
+      for (let k = 0; k < alpha.length; k++) {
+        img.data[k * 4] = img.data[k * 4 + 1] = img.data[k * 4 + 2] = 255;
+        img.data[k * 4 + 3] = alpha[k];
+      }
+      sg.putImageData(img, 0, 0);
+      const g = big.getContext("2d");
+      const sx = big.width / bw, sy = big.height / bh;
+      g.imageSmoothingEnabled = true;
+      if ("imageSmoothingQuality" in g) g.imageSmoothingQuality = "high";
+      g.drawImage(small, 0, 0, w * ds * sx, h * ds * sy);
+      g.setTransform(sx, 0, 0, sy, -box.x0 * sx, -box.y0 * sy);
+      tracePatch(g, p);
+      g.fillStyle = "#fff";
+      g.fill("nonzero");
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.globalCompositeOperation = "source-in";
+      g.fillStyle = color;
+      g.fillRect(0, 0, big.width, big.height);
+      hit.canvas = big;
+      hit.box = box;
+    }
+    closedCache.set(p.region, hit);
+  }
+  if (hit.canvas) {
+    const { box } = hit;
+    ctx.save();
+    ctx.globalAlpha = PATCH_ALPHA;
+    ctx.drawImage(hit.canvas, box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+    ctx.restore();
+  }
+  return true;
+}
+
+// What a closed patch is drawn from, as a string, for its cache.
+function patchKey(p, width, height, ratio, color) {
+  const parts = [width, height, ratio, color, p.size, p.band];
+  for (const n of p.nodes) parts.push(n.px, n.py);
+  parts.push("|");
+  for (const b of p.bands) parts.push(b.x1, b.y1, b.x2, b.y2);
+  return parts.join(",");
+}
+
+// Forget the closed patches of regions not drawn last frame.
+function pruneClosed() {
+  for (const k of closedCache.keys()) if (!closedSeen.has(k)) closedCache.delete(k);
+  closedSeen = new Set();
+}
+
+function makeCanvas(w, h) {
+  if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(w, h);
+  if (typeof document !== "undefined") {
+    const cv = document.createElement("canvas");
+    cv.width = w; cv.height = h;
+    return cv;
+  }
+  return null;
 }
 
 // The four corners of a band `hw` either side of the line from (x1, y1) to
@@ -669,21 +767,24 @@ export function draw(ctx, layout, { roomSize, colors, labels = true, size = null
   const half = roomSize / 2;
   const scale = layout.scale || roomSize * 2;
 
+  const ratio = (ctx.getTransform && ctx.getTransform().a) || 1;
+  const cv = ctx.canvas;
+  const width = size ? size.width : cv ? cv.width / ratio : 0;
+  const height = size ? size.height : cv ? cv.height / ratio : 0;
+  const view = width > 0 && height > 0 ? { width, height, ratio } : null;
+
   // Ground relief first, under the region patches and everything else.
   let relief = null;
   if (layout.relief && layout.relief.on) {
-    const ratio = (ctx.getTransform && ctx.getTransform().a) || 1;
-    const cv = ctx.canvas;
-    const width = size ? size.width : cv ? cv.width / ratio : 0;
-    const height = size ? size.height : cv ? cv.height / ratio : 0;
-    if (width > 0 && height > 0) {
+    if (view) {
       relief = paintRelief(ctx, layout.relief, { width, height, groundColor: layout.relief.groundColor, colors: c });
     }
   }
 
   // Region tints first, beneath the exits: each region's patch is one path
   // filled once, so where its pieces overlap it doesn't darken.
-  for (const p of layout.patches || []) drawPatch(ctx, p);
+  for (const p of layout.patches || []) drawPatch(ctx, p, view);
+  pruneClosed();
   ctx.lineCap = "round";
   for (const e of layout.exits) {
     const g = exitGeometry(e, half);

@@ -64,8 +64,14 @@ richer frame.
   whole-number coords) that's the room's whole cell, so a district is a
   solid block and a diagonal or two-cell exit is bridged a cell wide; off a
   grid (land placed by km) it's a disc per room joined by a band along each
-  exit. Rooms of a region with no exit between them and not touching stay
-  separate pieces, each with its own label.
+  exit. Since 0.13.1 an off-grid patch is closed as it's drawn: where its
+  bands ring open ground, or leave a dent, any gap up to about two room
+  spacings across fills in (it's grown by 1.1 spacings and shrunk back), so
+  a district reads as one piece rather than a net, while its outline stays
+  where it was. Grid patches are drawn as before. Rooms of a region with no
+  exit between them stay separate pieces, each with its own label, unless
+  their patches touch or (off a grid) are near enough, about 2.6 spacings,
+  that closing joins them.
 - **`regionColor`** (extension, 0.12.0) — beside `region`, the region's
   colour, `"#rrggbb"` or `"rrggbb"`: its tint (at the same faintness as
   ever) and its legend swatch. Kept with the area's regions, the latest
