@@ -13,8 +13,8 @@
 // turns it into a canvas, unions it with the patch's own path (so the outer
 // edge is the crisp vector one) and caches it.
 
-// How far the patch is grown and shrunk, in cells (room spacings): gaps up
-// to about twice this close.
+// How far the patch is grown and shrunk, in room spacings (spacing.js;
+// render.js multiplies it by the area's): gaps up to about twice this close.
 export const CLOSE_RADIUS = 1.1;
 
 // Squared Euclidean distance transform in one dimension (Felzenszwalb and

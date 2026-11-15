@@ -11,6 +11,7 @@ import {
 } from "./annotate.js";
 import { reliefArea, paintRelief, makeCanvas } from "./relief.js";
 import { CLOSE_RADIUS, closedAlpha, closeBox, closeStep, closedReach } from "./closing.js";
+import { areaSpacing, NO_SPACING } from "./spacing.js";
 
 export { envColor };
 
@@ -27,7 +28,11 @@ export const GLYPH_MIN_ROOM = 12;
 // everything, or null where the floor has no grid and fewer than two rooms
 // with an elevation; it's there with `shade` off too (with `on` false), so
 // the toggle still shows.
-export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path = null, anchorId = null, shade = true }) {
+// `spacings` (spacing.js areaSpacings, kept by the caller while rooms don't
+// change) gives the area's room spacing, which the distances about rooms are
+// multiplied by; without it, it's worked out here. The layout's `spacing` is
+// the area's.
+export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path = null, anchorId = null, shade = true, spacings = null }) {
   const cur = map.currentId != null ? map.rooms[map.currentId] : null;
   const viewArea = areaId != null ? areaId : (cur ? cur.areaId : null);
 
@@ -46,6 +51,7 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
   }
   if (!anchor) return { rooms: [], exits: [], stubs: [], patches: [], regions: [], elevation: null, scale };
   const z = viewedZ != null ? viewedZ : anchor.coords.z;
+  const sp = (spacings ? spacings.get(viewArea) : areaSpacing(map, viewArea)) || NO_SPACING;
 
   const pathRooms = path && path.rooms ? path.rooms : null;
   const pathEdges = path && path.edges ? path.edges : null;
@@ -155,16 +161,16 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
     }
   }
 
-  const { patches, regions } = regionLayout(map, rooms, joins, viewArea, scale);
-  const relief = reliefView(map, onFloor, viewArea, z, anchor, cx, cy, scale, shade);
-  return { rooms, exits, stubs, patches, regions, elevation, relief, scale };
+  const { patches, regions } = regionLayout(map, rooms, joins, viewArea, scale, sp);
+  const relief = reliefView(map, onFloor, viewArea, z, anchor, cx, cy, scale, shade, sp.spacing);
+  return { rooms, exits, stubs, patches, regions, elevation, relief, scale, spacing: sp.spacing };
 }
 
 // The relief to draw for this floor: the area's grid for it, if any, and the
 // rooms with an elevation (for the estimate where no grid is near), at the
 // x they're drawn at on a ring. `roomsSig` lets the painter's cache tell
 // when those rooms change.
-function reliefView(map, onFloor, areaId, z, anchor, cx, cy, scale, on) {
+function reliefView(map, onFloor, areaId, z, anchor, cx, cy, scale, on, spacing = 1) {
   const key = reliefArea(map.areas && map.areas[areaId]);
   const grid = (key && map.relief && map.relief[key] && map.relief[key][z]) || null;
   const rooms = [];
@@ -177,7 +183,7 @@ function reliefView(map, onFloor, areaId, z, anchor, cx, cy, scale, on) {
   }
   if (!grid && rooms.length < 2) return null;
   return {
-    on, grid, rooms, wrapX, cx, cy, scale,
+    on, grid, rooms, wrapX, cx, cy, scale, spacing,
     anchor: { x: anchor.coords.x, y: anchor.coords.y },
     roomsSig: rooms.map((r) => `${r.x},${r.y},${r.e}`).join(";"),
     groundColor: (id) => fillColor(map, { env: id }),
@@ -473,11 +479,21 @@ function wrapStep(a, b) {
 // Labels: one per piece (rooms joined by a band, or whose shapes touch or,
 // off a grid, are near enough that closing joins them), centred over it and just above its top row, so a region split by the view
 // or a ring's seam gets a label per piece.
+//
+// Sizes are in room spacings (spacing.js): a grid's cell is its lattice step
+// (1 on most grids), and off a grid the discs, bands and closing grow with
+// the area's spacing, so land placed by metres is drawn like land by km.
 export const PATCH_SQUARE = 0.5;   // half a cell: the room's whole cell
-export const PATCH_ROUND = 0.6;    // the disc's radius, in cells
-export const PATCH_BAND_ROUND = 0.5;   // half the band's width off a grid, in cells
+export const PATCH_ROUND = 0.6;    // the disc's radius, in room spacings
+export const PATCH_BAND_ROUND = 0.5;   // half the band's width off a grid, in room spacings
 
-function regionLayout(map, rooms, joins, areaId, scale) {
+function regionLayout(map, rooms, joins, areaId, scale, sp = NO_SPACING) {
+  const k = sp.spacing;
+  // A grid's cell: the area's whole step (1 on a grid, and on land placed
+  // by km, where a region on whole numbers is a grid of its own).
+  const unit = Math.max(1, Math.round(k));
+  const onLattice = unit === 1 ? Number.isInteger
+    : (v) => Math.abs(v / unit - Math.round(v / unit)) < 1e-6;
   const patches = [], regions = [];
   const inRegion = rooms.filter((r) => r.region);
   if (inRegion.length === 0) return { patches, regions };
@@ -495,7 +511,7 @@ function regionLayout(map, rooms, joins, areaId, scale) {
     // wrapped difference, which float error takes off the whole numbers.
     const grid = rs.every((r) => {
       const c = map.rooms[r.id].coords;
-      return Number.isInteger(c.x) && Number.isInteger(c.y);
+      return onLattice(c.x) && onLattice(c.y);
     });
     gridOf.set(key, grid);
     if (areaRegionType(map, areaId, key) === "land") continue;
@@ -503,9 +519,9 @@ function regionLayout(map, rooms, joins, areaId, scale) {
       region: key,
       color: areaRegionColor(map, areaId, key),
       shape: grid ? "square" : "round",
-      size: (grid ? PATCH_SQUARE : PATCH_ROUND) * scale,
-      cell: scale,
-      band: (grid ? PATCH_SQUARE : PATCH_BAND_ROUND) * scale,
+      size: (grid ? PATCH_SQUARE * unit : PATCH_ROUND * k) * scale,
+      cell: (grid ? unit : k) * scale,
+      band: (grid ? PATCH_SQUARE * unit : PATCH_BAND_ROUND * k) * scale,
       nodes: [],
       bands: [],
     };
@@ -548,11 +564,12 @@ function regionLayout(map, rooms, joins, areaId, scale) {
     // A drawn round patch is closed (closing.js), which joins discs further
     // apart than touching; a land region's isn't drawn, so its rooms join
     // only where their discs would touch.
-    const reach = patchOf.has(rs[0].region) ? closedReach(PATCH_ROUND, CLOSE_RADIUS) : 2 * PATCH_ROUND;
+    const reach = (patchOf.has(rs[0].region) ? closedReach(PATCH_ROUND, CLOSE_RADIUS) : 2 * PATCH_ROUND) * k;
+    const tol = 1e-9 * Math.max(1, unit, k);
     const touch = grid
-      ? (a, b) => Math.abs(a.cell.x - b.cell.x) <= 1 + 1e-9 && Math.abs(a.cell.y - b.cell.y) <= 1 + 1e-9
-      : (a, b) => Math.hypot(a.cell.x - b.cell.x, a.cell.y - b.cell.y) <= reach + 1e-9;
-    const bs = grid ? 2 : Math.max(2, Math.ceil(reach));
+      ? (a, b) => Math.abs(a.cell.x - b.cell.x) <= unit + tol && Math.abs(a.cell.y - b.cell.y) <= unit + tol
+      : (a, b) => Math.hypot(a.cell.x - b.cell.x, a.cell.y - b.cell.y) <= reach + tol;
+    const bs = grid ? 2 * unit : Math.max(2 * k, Math.ceil(reach / k) * k);
     const buckets = new Map();
     const bk = (x, y) => `${x},${y}`;
     for (const r of rs) {

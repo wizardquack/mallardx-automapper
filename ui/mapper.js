@@ -11,6 +11,7 @@ import { renameRoom, deleteRoom, mergeRooms, addExit, deleteExit, setOneWay,
 import { legendModel, tooltipSpec, parseColor, fillColor, terrainLabel } from "./annotate.js";
 import { addLink, deleteLink, setLinkOneWay, setLinkField, linksOf, hasWay, offersLinks } from "./links.js";
 import { createHistory } from "./history.js";
+import { areaSpacings } from "./spacing.js";
 import { roomMenuModel, selectionMenuModel } from "./editmenu.js";
 import { addArea } from "./graph.js";
 import { decodePatch, mergePatch, areasWithRooms, clearEmptiedRelief, swapRelief, areaWraps, rewrapRelief } from "./relief.js";
@@ -197,6 +198,7 @@ function redraw() {
     path: highlightPath,
     anchorId: focusAnchorId,
     shade: showShading,
+    spacings,
   });
   lastLayout = layout;
   lastRoomSize = Math.max(8, ZOOMS[zoomIdx] * 0.5);
@@ -861,12 +863,14 @@ function applyRelief(frame) {
   return mergePatch(map, p, wraps.get(p.area) || null);
 }
 
-// Where each area's x comes round (relief.js areaWraps), worked out again
-// whenever rooms change rather than per patch. An area whose wrap is new or
-// different has its stored relief brought onto the ring. True if that
-// changed the relief.
+// Where each area's x comes round (relief.js areaWraps) and how far apart
+// its rooms are (spacing.js), worked out again whenever rooms change rather
+// than per patch or per frame. An area whose wrap is new or different has
+// its stored relief brought onto the ring. True if that changed the relief.
 let wraps = new Map();
+let spacings = new Map();
 function syncWraps() {
+  spacings = areaSpacings(map);
   const now = areaWraps(map);
   let changed = false;
   for (const [area, w] of now) {

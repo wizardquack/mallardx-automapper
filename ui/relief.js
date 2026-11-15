@@ -356,6 +356,9 @@ export function reliefArea(area) {
 // fading out to INTERP_REACH, so the gaps between rooms two or three units
 // apart fill in, while past the rooms' outer edge (rooms on one side only)
 // the estimate still ends at about FALLBACK_REACH.
+// All of these are in room spacings (spacing.js): multiplied by the view's
+// `spacing`, which is 1 on a grid and on land like the land they were tuned
+// on, so they reach as far, in rooms, wherever the coords' units.
 export const FALLBACK_REACH = 1.5;
 export const FALLBACK_FULL = 0.75;
 export const INTERP_REACH = 2.5;
@@ -374,11 +377,12 @@ export const MAX_FIELD = 640;
 // height (NaN unknown), a ground index (UNKNOWN_G none), how much of it to
 // draw (cov, 0…1: soft at the known region's edge), and whether it's
 // estimated from rooms (est). `view`: { grid, rooms: [{ x, y, e }] in drawn
-// map units, wrapX, anchor: { x, y }, cx, cy, scale } and the canvas
-// width/height in px. Null when there's nothing to draw.
+// map units, wrapX, anchor: { x, y }, cx, cy, scale, spacing } and the
+// canvas width/height in px. Null when there's nothing to draw.
 export function reliefField(view, width, height) {
   const { grid, rooms = [], wrapX = null, anchor, cx, cy, scale } = view;
-  const cell = grid ? grid.cell : FALLBACK_CELL;
+  const sp = view.spacing > 0 ? view.spacing : 1;
+  const cell = grid ? grid.cell : FALLBACK_CELL * sp;
   const pad = 2;
   const x0 = anchor.x + (0 - cx) / scale, x1 = anchor.x + (width - cx) / scale;
   const y0 = anchor.y + (0 - cy) / scale, y1 = anchor.y + (height - cy) / scale;
@@ -422,10 +426,11 @@ export function reliefField(view, width, height) {
   }
 
   if (rooms.length) {
-    const near = any ? dilate(known, cols, rows, Math.ceil(FALLBACK_REACH / cell)) : null;
+    const near = any ? dilate(known, cols, rows, Math.ceil(FALLBACK_REACH * sp / cell)) : null;
+    // Distances below are in room spacings; buckets a spacing across.
     const buckets = new Map();
     for (const rm of rooms) {
-      const key = `${Math.floor(rm.x)},${Math.floor(rm.y)}`;
+      const key = `${Math.floor(rm.x / sp)},${Math.floor(rm.y / sp)}`;
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key).push(rm);
     }
@@ -437,7 +442,7 @@ export function reliefField(view, width, height) {
         const k = r * cols + c;
         if (known[k] || (near && near[k])) continue;
         const x = (i0 + c) * cell;
-        const bx = Math.floor(x), by = Math.floor(y);
+        const bx = Math.floor(x / sp), by = Math.floor(y / sp);
         let sw = 0, swe = 0, dmin = Infinity;
         near_.length = 0;
         for (let dx = -reach; dx <= reach; dx++) {
@@ -445,10 +450,10 @@ export function reliefField(view, width, height) {
             const list = buckets.get(`${bx + dx},${by + dy}`);
             if (!list) continue;
             for (const rm of list) {
-              const d = Math.hypot(rm.x - x, rm.y - y);
+              const dr = Math.hypot(rm.x - x, rm.y - y), d = dr / sp;
               if (d > INTERP_REACH) continue;
               if (d < dmin) dmin = d;
-              near_.push([d, d > 0 ? (rm.x - x) / d : 0, d > 0 ? (rm.y - y) / d : 0]);
+              near_.push([d, dr > 0 ? (rm.x - x) / dr : 0, dr > 0 ? (rm.y - y) / dr : 0]);
               const w = Math.exp(-(d * d) / (FALLBACK_SIGMA * FALLBACK_SIGMA));
               sw += w; swe += w * rm.e;
             }
@@ -721,7 +726,7 @@ export function paintRelief(ctx, view, { width, height, groundColor, colors, kno
   const ratio = (ctx.getTransform && ctx.getTransform().a) || 1;
   const grounds = view.grid ? view.grid.ids.map((id) => groundColor(id)).join(",") : "";
   const key = JSON.stringify([
-    view.grid ? view.grid.rev : 0, view.roomsSig || "", view.wrapX || 0,
+    view.grid ? view.grid.rev : 0, view.roomsSig || "", view.wrapX || 0, view.spacing || 1,
     view.anchor.x, view.anchor.y, view.cx, view.cy, view.scale, width, height, ratio,
     colors.halo, grounds,
   ]);
