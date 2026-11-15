@@ -1,6 +1,6 @@
 {
   "name": "mallardx-automapper",
-  "version": "0.13.1",
+  "version": "0.13.2",
   "description": "Universal GMCP-first automapper for Mallard.",
   "private": true,
   "type": "module",
