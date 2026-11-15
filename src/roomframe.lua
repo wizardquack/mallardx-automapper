@@ -90,6 +90,15 @@ function M.color(v)
   return hex and ("#" .. hex:lower()) or nil
 end
 
+-- A region's kind (extension `regionType`): "land" for a named piece of
+-- country (named, not tinted), "district" for anything else sent; nil when
+-- not sent, so a frame without it leaves the region's kind alone.
+function M.region_type(v)
+  if v == nil or (type(v) ~= "string" and type(v) ~= "number") then return nil end
+  if type(v) == "string" and v:lower() == "land" then return "land" end
+  return "district"
+end
+
 -- A finite number, else nil (extensions `elevation`, `lat`, `lon`).
 function M.number(v)
   if finite(v) then return v end
@@ -185,6 +194,7 @@ function M.normalize(data, with_exits)
     region = str(data.region),
     regionName = str(data.regionName),
     regionColor = M.color(data.regionColor),
+    regionType = M.region_type(data.regionType),
     -- Height above the world's datum in metres (not a floor: coords.z is),
     -- and degrees north and east (extensions).
     elevation = M.number(data.elevation),

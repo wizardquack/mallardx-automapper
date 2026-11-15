@@ -27,6 +27,9 @@ export function seenFromFrame(frame) {
     region: nonEmpty(frame.region),
     regionName: nonEmpty(frame.regionName),
     regionColor: hexColor(frame.regionColor) || undefined,
+    // "land" (named, not tinted) or "district"; anything else sent is a
+    // district, and a frame without it leaves the region's kind alone.
+    regionType: regionType(frame.regionType),
     // Metres above the world's datum (not a floor), and degrees north and
     // east (extensions).
     elevation: finiteOr(frame.elevation),
@@ -65,6 +68,13 @@ export function hexColor(v) {
   if (typeof v !== "string") return null;
   const m = /^#?([0-9a-f]{6})$/i.exec(v);
   return m ? "#" + m[1].toLowerCase() : null;
+}
+
+// A region's kind as sent (extension `regionType`) → "land" or "district";
+// undefined when not sent.
+export function regionType(v) {
+  if (typeof v !== "string" && typeof v !== "number") return undefined;
+  return String(v).toLowerCase() === "land" ? "land" : "district";
 }
 
 function nonEmpty(v) {

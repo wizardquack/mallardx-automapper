@@ -85,7 +85,8 @@ export function resolveRoomSeen(map, seen, pendingDir, cfg) {
 // name recorded on the area. A frame without them leaves the room alone. The
 // user's colour, symbol and note are never touched here.
 // A region's colour (regionColor) is kept with the area's regions, the latest
-// sent winning. Elevation and lat/lon are kept where sent, like the region.
+// sent winning, and so is its kind (regionType: a "land" region is named but
+// not tinted; only land is kept, a district being the default). Elevation and lat/lon are kept where sent, like the region.
 export function refreshAnnotations(map, room, seen) {
   if (Array.isArray(seen.tags)) {
     if (seen.tags.length) room.tags = seen.tags.slice();
@@ -100,6 +101,12 @@ export function refreshAnnotations(map, room, seen) {
       if (seen.regionColor) {
         area.regionColors = area.regionColors || {};
         area.regionColors[seen.region] = seen.regionColor;
+      }
+      if (seen.regionType === "land") {
+        area.regionTypes = area.regionTypes || {};
+        area.regionTypes[seen.region] = "land";
+      } else if (seen.regionType && area.regionTypes) {
+        delete area.regionTypes[seen.region];
       }
     }
   }

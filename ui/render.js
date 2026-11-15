@@ -6,7 +6,7 @@ import { isCompass, vector, reverse } from "./directions.js";
 import { floorMarks } from "./floors.js";
 import { getAreaByKey } from "./graph.js";
 import {
-  fillColor, roomGlyph, regionColor, regionName, inkOn, envColor, areaRegionColor,
+  fillColor, roomGlyph, regionColor, regionName, inkOn, envColor, areaRegionColor, areaRegionType,
   elevationRange, shadeAmount, shadeColor, exitStyle, strongerStyle,
 } from "./annotate.js";
 import { reliefArea, paintRelief } from "./relief.js";
@@ -462,6 +462,9 @@ function wrapStep(a, b) {
 // rounded ribbon along the paths. A way across a ring's seam bands each end
 // out to where the other room comes round, as its line is drawn.
 //
+// A land region (regionType "land": a named piece of country, not a district)
+// has no patch, only its labels, laid out in pieces just the same.
+//
 // Labels: one per piece (rooms joined by a band, or whose shapes touch),
 // centred over it and just above its top row, so a region split by the view
 // or a ring's seam gets a label per piece.
@@ -481,8 +484,11 @@ function regionLayout(map, rooms, joins, areaId, scale) {
     byRegion.get(r.region).push(r);
   }
   const patchOf = new Map();
+  const gridOf = new Map();
   for (const [key, rs] of byRegion) {
     const grid = rs.every((r) => Number.isInteger(r.cell.x) && Number.isInteger(r.cell.y));
+    gridOf.set(key, grid);
+    if (areaRegionType(map, areaId, key) === "land") continue;
     const p = {
       region: key,
       color: areaRegionColor(map, areaId, key),
@@ -514,9 +520,9 @@ function regionLayout(map, rooms, joins, areaId, scale) {
     if (!a || !b) continue;
     const p = patchOf.get(a.region);
     if (j.step == null) {
-      p.bands.push({ x1: a.px, y1: a.py, x2: b.px, y2: b.py });
+      if (p) p.bands.push({ x1: a.px, y1: a.py, x2: b.px, y2: b.py });
       union(a.id, b.id);
-    } else {
+    } else if (p) {
       // Each end runs off toward where the other comes round; the two ends
       // are separate pieces on screen, so they aren't joined.
       p.bands.push({ x1: a.px, y1: a.py, x2: a.px + j.step * scale, y2: b.py });
@@ -527,7 +533,7 @@ function regionLayout(map, rooms, joins, areaId, scale) {
   // Shapes that touch join without an exit (a grid's neighbours, a block
   // with walls between). Bucketed by two cells, so this isn't n².
   for (const rs of byRegion.values()) {
-    const grid = patchOf.get(rs[0].region).shape === "square";
+    const grid = gridOf.get(rs[0].region);
     const touch = grid
       ? (a, b) => Math.abs(a.cell.x - b.cell.x) <= 1 + 1e-9 && Math.abs(a.cell.y - b.cell.y) <= 1 + 1e-9
       : (a, b) => Math.hypot(a.cell.x - b.cell.x, a.cell.y - b.cell.y) <= 2 * PATCH_ROUND + 1e-9;

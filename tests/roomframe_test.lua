@@ -155,6 +155,15 @@ local cr = roomframe.chart({ rooms = { { id = "c1", elevation = 9, lat = 1, lon 
 check("chart elevation", cr.rooms[1].elevation, 9)
 check("chart regionColor", cr.rooms[1].regionColor, "#010203")
 
+-- 0.13.1: regionType ("land" or "district"; anything else sent is district).
+check("regionType land", roomframe.normalize({ id = "l", region = "d", regionType = "land" }, true).regionType, "land")
+check("regionType Land", roomframe.normalize({ id = "l", region = "d", regionType = "Land" }, true).regionType, "land")
+check("regionType district", roomframe.normalize({ id = "l", region = "d", regionType = "district" }, true).regionType, "district")
+check("regionType unknown", roomframe.normalize({ id = "l", region = "d", regionType = "moor" }, true).regionType, "district")
+check("regionType absent", roomframe.normalize({ id = "l", region = "d" }, true).regionType, nil)
+check("regionType table", roomframe.normalize({ id = "l", region = "d", regionType = {} }, true).regionType, nil)
+check("chart regionType", roomframe.chart({ rooms = { { id = "c2", region = "r", regionType = "land" } } }).rooms[1].regionType, "land")
+
 -- glyph: one or two characters, no whitespace or control, well-formed UTF-8.
 check("glyph ascii", roomframe.glyph("$"), "$")
 check("glyph two", roomframe.glyph("Ab"), "Ab")

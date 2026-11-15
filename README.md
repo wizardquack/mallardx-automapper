@@ -70,6 +70,15 @@ richer frame.
   colour, `"#rrggbb"` or `"rrggbb"`: its tint (at the same faintness as
   ever) and its legend swatch. Kept with the area's regions, the latest
   sent winning. Without one, the colour is hashed from the region's key.
+- **`regionType`** (extension, 0.13.1) — beside `region`, what kind of
+  region it is: `"district"` (the default: a tinted patch with its name over
+  it, as above) or `"land"`, a named piece of country (the Downs, the Carn)
+  that's labelled, shown on hover and found by search like any region but
+  gets no tint, so it doesn't paint over the ground relief. The legend lists
+  a land region with no swatch. Any other value means `district`. Kept with
+  the area's regions, the latest sent winning; a frame without it leaves the
+  region's kind as it was. The mapper never hides a tint by itself: the game
+  says which regions are land.
 - **`elevation`** (extension, 0.12.0) — metres above the world's datum; may
   be negative or fractional. It isn't a floor (`coords.z` is). The hover
   card shows it ("Elevation 412 m") and rooms are shaded by it (see

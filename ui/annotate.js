@@ -6,7 +6,7 @@
 // region, elevation, lat/lon, exitStyles. User-set fields (edits.js): color,
 // symbol, note. Server terrain definitions live in map.terrains, tag
 // definitions in map.tagDefs, region names in area.regions and their colours
-// in area.regionColors.
+// in area.regionColors, and which are land (not tinted) in area.regionTypes.
 
 import { floorNeighbours } from "./floors.js";
 import { linksOf, linkLabel } from "./links.js";
@@ -176,6 +176,13 @@ export function areaRegionColor(map, areaId, key) {
   return (area && area.regionColors && area.regionColors[key]) || null;
 }
 
+// A region's kind: "land" (a named piece of country, drawn without a tint)
+// where the server said so, else "district".
+export function areaRegionType(map, areaId, key) {
+  const area = areaId != null && map.areas ? map.areas[areaId] : null;
+  return area && area.regionTypes && area.regionTypes[key] === "land" ? "land" : "district";
+}
+
 export function regionName(map, room) {
   if (!room.region) return "";
   const area = room.areaId != null ? map.areas[room.areaId] : null;
@@ -301,8 +308,10 @@ export function legendModel(map, rooms, exits = []) {
       }
     }
     if (r.region && !regions.has(r.region)) {
+      // Land isn't tinted, so it's listed with no swatch.
+      const land = areaRegionType(map, r.areaId, r.region) === "land";
       const color = areaRegionColor(map, r.areaId, r.region);
-      regions.set(r.region, { name: regionName(map, r), color: regionColor(r.region, 1, color) });
+      regions.set(r.region, { name: regionName(map, r), color: land ? null : regionColor(r.region, 1, color) });
     }
   }
   const byLabel = (a, b) => a.label.localeCompare(b.label);

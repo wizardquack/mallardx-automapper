@@ -238,7 +238,11 @@ function renderLegend() {
     Object.assign(document.createElement("span"), { className: "legend-glyph", textContent: g.glyph }),
     g.tags.join(", "),
   ]));
-  section("Regions", model.regions.map((r) => [swatch(r.color, "legend-swatch legend-region"), r.name]));
+  // A land region has no tint, so no swatch: a blank keeps the names in line.
+  section("Regions", model.regions.map((r) => [
+    r.color ? swatch(r.color, "legend-swatch legend-region") : Object.assign(document.createElement("span"), { className: "legend-swatch legend-land" }),
+    r.name,
+  ]));
   section("Ways", model.ways.map((w) => [waySample(w.style), w.label]));
   if (lastRelief && showShading) section("Relief", reliefLegend(lastRelief, swatch));
   if (!$legend.childElementCount) {

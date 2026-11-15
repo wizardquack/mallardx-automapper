@@ -58,7 +58,10 @@ export function createMap() {
 // and fields only the user sets (edits.js): color, symbol, note.
 // Areas may carry `regions` — { [regionKey]: name } — and `regionColors` —
 // { [regionKey]: "#rrggbb" }, the server's colour for a region (0.12.0; a
-// separate map so maps saved before it load as they are).
+// separate map so maps saved before it load as they are) — and `regionTypes`
+// — { [regionKey]: "land" }, a region the server says is a named piece of
+// country rather than a district (0.13.1): named, not tinted. A region not
+// in it is a district.
 export function addRoom(map, { key, fp, name, env, coords, areaId }) {
   const id = String(map.nextId++);
   const room = {

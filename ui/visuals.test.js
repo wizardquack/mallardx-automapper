@@ -5,7 +5,7 @@ import { createMap, getRoomByKey, getArea, toJSON, fromJSON, setTagDefs } from "
 import { resolveRoomSeen } from "./identity.js";
 import { importChart } from "./chart.js";
 import { seenFromFrame, tagDefsFromFrame, validGlyph } from "./seen.js";
-import { regionName, areaRegionColor, legendModel, regionColor } from "./annotate.js";
+import { regionName, areaRegionColor, areaRegionType, legendModel, regionColor, tooltipSpec } from "./annotate.js";
 import { computeLayout } from "./render.js";
 
 const frame = (key, extra = {}) => ({ key, name: key, env: "road", areaField: "area", areaTag: "town", ...extra });
@@ -74,6 +74,58 @@ describe("region colours", () => {
     const loaded = fromJSON(toJSON(m));
     const a = getRoomByKey(loaded, "a");
     expect(areaRegionColor(loaded, a.areaId, "docks")).toBe("#102030");
+  });
+});
+
+describe("region types (0.13.1)", () => {
+  it("reads land and district, unknown as district, absent as unsent", () => {
+    expect(seenFromFrame(frame("a", { regionType: "land" })).regionType).toBe("land");
+    expect(seenFromFrame(frame("a", { regionType: "LAND" })).regionType).toBe("land");
+    expect(seenFromFrame(frame("a", { regionType: "district" })).regionType).toBe("district");
+    expect(seenFromFrame(frame("a", { regionType: "moor" })).regionType).toBe("district");
+    expect(seenFromFrame(frame("a", {})).regionType).toBeUndefined();
+    expect(seenFromFrame(frame("a", { regionType: null })).regionType).toBeUndefined();
+  });
+
+  it("are kept with the area's regions, the latest sent winning", () => {
+    const m = createMap();
+    see(m, frame("a", { region: "downs", regionName: "the Downs", regionType: "land" }));
+    const a = getRoomByKey(m, "a");
+    expect(areaRegionType(m, a.areaId, "downs")).toBe("land");
+    // Not sent: left alone.
+    see(m, frame("b", { region: "downs" }), "e");
+    expect(areaRegionType(m, a.areaId, "downs")).toBe("land");
+    // A district (or anything unknown) turns it back.
+    see(m, frame("c", { region: "downs", regionType: "moor" }), "e");
+    expect(areaRegionType(m, a.areaId, "downs")).toBe("district");
+    see(m, frame("c", { region: "downs", regionType: "land" }));
+    expect(fromJSON(toJSON(m)).areas[a.areaId].regionTypes).toEqual({ downs: "land" });
+  });
+
+  it("an old saved map (no regionTypes) loads with every region a district", () => {
+    const m = createMap();
+    see(m, frame("a", { region: "docks" }));
+    const old = JSON.parse(toJSON(m));
+    for (const id of Object.keys(old.areas)) delete old.areas[id].regionTypes;
+    const loaded = fromJSON(JSON.stringify(old));
+    const a = getRoomByKey(loaded, "a");
+    expect(areaRegionType(loaded, a.areaId, "docks")).toBe("district");
+    expect(computeLayout(loaded, { cx: 0, cy: 0, scale: 40 }).patches.length).toBe(1);
+  });
+
+  it("a land region is labelled, hovered and listed but gets no patch or swatch", () => {
+    const m = createMap();
+    see(m, frame("a", { coords: { x: 0, y: 0, z: 0 }, region: "downs", regionName: "the Downs", regionType: "land", regionColor: "#102030" }));
+    see(m, frame("b", { coords: { x: 1, y: 0, z: 0 }, region: "docks", regionName: "the Docks" }), "e");
+    const a = getRoomByKey(m, "a");
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40, anchorId: a.id });
+    expect(L.patches.map((p) => p.region)).toEqual(["docks"]);
+    expect(L.regions.map((g) => g.name).sort()).toEqual(["the Docks", "the Downs"]);
+    expect(legendModel(m, [a, getRoomByKey(m, "b")]).regions).toEqual([
+      { name: "the Docks", color: regionColor("docks") },
+      { name: "the Downs", color: null },
+    ]);
+    expect(tooltipSpec(m, a).rows).toContainEqual({ label: "Region", value: "the Downs" });
   });
 });
 

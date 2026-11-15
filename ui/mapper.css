@@ -196,6 +196,7 @@ body {
   border: 1px solid var(--border, #374151);
 }
 .legend-region { opacity: 0.6; }
+.legend-land { border-color: transparent; }
 .legend-ground { opacity: 0.45; }
 .legend-contour {
   flex: none; display: inline-block; width: 12px; height: 0;
