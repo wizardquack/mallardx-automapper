@@ -3,6 +3,7 @@ import { createMap, addRoom, linkExit, setCurrent, addArea } from "./graph.js";
 import { exitStroke, climbTicks } from "./render.js";
 import { shadeColor, inkOn, regionColor } from "./annotate.js";
 import { setTagDefs } from "./graph.js";
+import { knockoutShapes, HALO_ROOM } from "./render.js";
 import { bandQuad, computeLayout, envColor, draw, fitText, glyphOrigin, roomsInRect, exitPort, clearOf, exitGeometry, oneWayArrow, cardAt, NAME_LABEL_MIN_SCALE } from "./render.js";
 import { setTerrains } from "./graph.js";
 import { addLink } from "./links.js";
@@ -1009,6 +1010,49 @@ describe("draw: region patches", () => {
     for (const r of rs) r.region = "q";
     setCurrent(m, rs[0].id);
     expect(drawn(computeLayout(m, { cx: 200, cy: 150, scale: 40 }))).toContainEqual(["fill", regionColor("q", 0.18)]);
+  });
+});
+
+describe("knockoutShapes: the contour halo", () => {
+  // Is (x, y) within the halo: a disc, or half the band's width of a path?
+  const inHalo = (k, x, y) => k.discs.some((d) => Math.hypot(x - d.x, y - d.y) <= d.r)
+    || k.paths.some((path) => path.slice(1).some((b, i) => {
+      const a = path[i], dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+      const t = l2 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / l2)) : 0;
+      return Math.hypot(x - a.x - t * dx, y - a.y - t * dy) <= k.width / 2;
+    }));
+
+  it("covers each room's stubs and every exit along its length, but not open ground", () => {
+    const m = createMap();
+    const a = addRoom(m, { key: "a", coords: { x: 0, y: 0, z: 0 } });
+    const b = addRoom(m, { key: "b", coords: { x: 3, y: 1, z: 0 } });
+    linkExit(m, a.id, "e", b.id); linkExit(m, b.id, "w", a.id);
+    a.exitKeys = { n: "nowhere" }; b.exitKeys = { s: "nowhere" };
+    setCurrent(m, a.id);
+    const L = computeLayout(m, { cx: 0, cy: 0, scale: 40 });
+    const half = 8;
+    const k = knockoutShapes(L, half);
+    expect(k.discs.length).toBe(2);
+    expect(k.discs[0].r).toBe(half * HALO_ROOM);
+    expect(k.width).toBe(Math.max(10, half * 1.8));
+    // Each stub, out to its far end.
+    expect(L.stubs.length).toBe(2);
+    for (const s of L.stubs) {
+      const p = exitPort(s.px, s.py, s.dir, half);
+      const len = Math.max(8, half * 2);
+      expect(inHalo(k, p.x + p.ux * len, p.y + p.uy * len)).toBe(true);
+    }
+    // Along the exit's curve, end to end.
+    const g = exitGeometry(L.exits[0], half);
+    for (let t = 0; t <= 1; t += 0.05) {
+      const u = 1 - t;
+      const x = u * u * u * g.a.x + 3 * u * u * t * g.c1.x + 3 * u * t * t * g.c2.x + t * t * t * g.b.x;
+      const y = u * u * u * g.a.y + 3 * u * u * t * g.c1.y + 3 * u * t * t * g.c2.y + t * t * t * g.b.y;
+      expect(inHalo(k, x, y)).toBe(true);
+    }
+    // Open ground off the line stays.
+    expect(inHalo(k, 60, 80)).toBe(false);
+    expect(inHalo(k, 60, -50)).toBe(false);
   });
 });
 

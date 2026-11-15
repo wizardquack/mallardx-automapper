@@ -187,10 +187,15 @@ of an area forgets its grids.
 
 **Drawing.** Under the region patches, rooms and exits, for the floor in
 view: each known cell's ground in its terrain colour at modest opacity, hill
-shading lit from the north-west, and thin, faint contours (every fifth a
-little stronger) at an interval picked from the heights in view (1, 2, 5,
-10, 20, 25, 50, 100, 200, 250, 500 m…, at most about ten lines). Unknown
-cells are left as background, and the edge of what's known is feathered.
+shading lit from the north-west, and thin contours (every fifth a little
+stronger) at an interval picked from the heights in view (1, 2, 5, 10, 20,
+25, 50, 100, 200, 250, 500 m…, at most about ten lines). Unknown cells are
+left as background, and the edge of what's known is feathered. Since 0.13.1
+contours are a warm sepia (`#c9a06e` on a dark theme, `#8a5a2b` on a light
+one), so they never read as the grey exit lines, and they're cleared, with
+a soft edge, in a halo round each room (as far as its stubs reach) and in a
+band along each exit and stub; the ground colour and shading run on
+underneath.
 
 **Estimated relief.** Where an area has rooms with an `elevation` but no grid
 near them (within 1.5 map units), heights are estimated from those rooms,

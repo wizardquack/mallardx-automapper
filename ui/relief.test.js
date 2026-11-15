@@ -3,6 +3,7 @@ import {
   decodePatch, mergePatch, clearRelief, reliefArea, ReliefGrid, reliefFromJSON,
   b64FromBytes, bytesFromB64, wrapCells, wrapI, contourInterval, contourSegments,
   reliefField, hillshade, areasWithRooms, clearEmptiedRelief, UNKNOWN_H, UNKNOWN_G, CHUNK, FALLBACK_REACH,
+  paintRelief, resetReliefCache, contourInk, CONTOUR_INK_DARK, CONTOUR_INK_LIGHT, CONTOUR_ALPHA, INDEX_CONTOUR_ALPHA,
 } from "./relief.js";
 import { createMap, toJSON, fromJSON } from "./graph.js";
 
@@ -375,5 +376,92 @@ describe("feather", () => {
     expect(a(5)).toBeLessThan(a(4));
     expect(out[(4 * cols + 5) * 4]).toBe(200);     // in the known colour
     expect(a(8)).toBe(0);                          // further, nothing
+  });
+});
+
+describe("painting: contour layer, ink and halo (0.13.1)", () => {
+  // A stand-in OffscreenCanvas whose contexts log what's done to them.
+  const canvases = [];
+  class FakeCanvas {
+    constructor(w, h) {
+      this.width = w; this.height = h; this.log = [];
+      canvases.push(this);
+      const log = this.log;
+      const state = { globalCompositeOperation: "source-over", strokeStyle: "", globalAlpha: 1 };
+      this.ctx = new Proxy(state, {
+        get: (t, k) => {
+          if (k in t) return t[k];
+          if (k === "createImageData") return (w, h) => ({ data: new Uint8ClampedArray(w * h * 4) });
+          return (...a) => log.push([k, t.globalCompositeOperation, t.strokeStyle, ...a]);
+        },
+        set: (t, k, v) => { t[k] = v; return true; },
+      });
+    }
+    getContext() { return this.ctx; }
+  }
+  const view = { grid: null, rooms: [{ x: 0, y: 0, e: 0 }, { x: 1, y: 0, e: 40 }, { x: 0, y: 1, e: 80 }],
+    anchor: { x: 0, y: 0 }, cx: 100, cy: 100, scale: 40, roomsSig: "t" };
+  const target = () => {
+    const log = [];
+    return { log, getTransform: () => ({ a: 1 }), drawImage: (cv) => log.push(cv) };
+  };
+  const paint = (ctx, colors, knockout) => paintRelief(ctx, view, { width: 200, height: 200, groundColor: () => null, colors, knockout });
+  const withCanvas = (fn) => {
+    const prev = globalThis.OffscreenCanvas;
+    globalThis.OffscreenCanvas = FakeCanvas;
+    try { return fn(); } finally { if (prev) globalThis.OffscreenCanvas = prev; else delete globalThis.OffscreenCanvas; resetReliefCache(); }
+  };
+
+  it("inks contours sepia, darker on a light background, index lines stronger", () => {
+    expect(contourInk(false)).toBe(CONTOUR_INK_DARK);
+    expect(contourInk(true)).toBe(CONTOUR_INK_LIGHT);
+    expect(CONTOUR_INK_DARK).toBe("#c9a06e");
+    expect(CONTOUR_INK_LIGHT).toBe("#8a5a2b");
+    expect(INDEX_CONTOUR_ALPHA).toBeGreaterThan(CONTOUR_ALPHA);
+    expect(contourInterval(0, 80)).toBe(10);
+  });
+
+  it("draws contours in a layer of their own, and cuts the halo from a copy of it alone", () => {
+    withCanvas(() => {
+      canvases.length = 0;
+      resetReliefCache();
+      const ctx = target();
+      let cuts = 0;
+      const knockout = { key: "k1", draw: (g) => { cuts++; g.fillRect(0, 0, 10, 10); } };
+      paint(ctx, { halo: "#0b0e14" }, knockout);
+      // Two drawn: ground and shading, then the cut contours.
+      expect(ctx.log.length).toBe(2);
+      const [base, cut] = ctx.log;
+      const lines = canvases.find((cv) => cv.log.some((op) => op[0] === "stroke"));
+      expect(lines).toBeTruthy();
+      expect(lines).not.toBe(base);
+      expect(cut).not.toBe(lines);
+      // The ink is sepia.
+      expect(lines.log.find((op) => op[0] === "stroke")[2]).toBe(CONTOUR_INK_DARK);
+      // The halo is cleared from the copy only: nothing else draws with
+      // destination-out, so ground and shading are never cut.
+      expect(cut.log.some((op) => op[0] === "fillRect" && op[1] === "destination-out")).toBe(true);
+      for (const cv of canvases) if (cv !== cut) expect(cv.log.some((op) => op[1] === "destination-out")).toBe(false);
+      expect(cuts).toBe(1);
+      // Same view and halo: nothing rebuilt or re-cut, nothing new made.
+      const made = canvases.length;
+      paint(ctx, { halo: "#0b0e14" }, knockout);
+      expect(cuts).toBe(1);
+      expect(canvases.length).toBe(made);
+      // A new halo re-cuts into the same copy.
+      paint(ctx, { halo: "#0b0e14" }, { ...knockout, key: "k2" });
+      expect(cuts).toBe(2);
+      expect(canvases.length).toBe(made);
+    });
+  });
+
+  it("uses the light ink on a light background", () => {
+    withCanvas(() => {
+      canvases.length = 0;
+      resetReliefCache();
+      paint(target(), { halo: "#ffffff" }, null);
+      const lines = canvases.find((cv) => cv.log.some((op) => op[0] === "stroke"));
+      expect(lines.log.find((op) => op[0] === "stroke")[2]).toBe(CONTOUR_INK_LIGHT);
+    });
   });
 });

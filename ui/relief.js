@@ -561,8 +561,18 @@ export const SHADE_LIGHT_ALPHA = 0.16;
 export const SHADE_DARK_ALPHA = 0.3;
 // On a light background shadow shows more and light less.
 const LIGHT_BG_DARK = 0.6, LIGHT_BG_LIGHT = 1.4;
-export const CONTOUR_ALPHA = 0.16;
-export const INDEX_CONTOUR_ALPHA = 0.3;
+// Contours are inked a warm sepia, like a printed map's, so they never read
+// as the grey exit lines; a little stronger than the rest of the relief,
+// since the halo round rooms and exits keeps them clear of the map's lines.
+export const CONTOUR_INK_DARK = "#c9a06e";    // on a dark background
+export const CONTOUR_INK_LIGHT = "#8a5a2b";   // on a light one
+export const CONTOUR_ALPHA = 0.24;
+export const INDEX_CONTOUR_ALPHA = 0.42;
+
+// The contour ink for a background, by its brightness.
+export function contourInk(lightBg) {
+  return lightBg ? CONTOUR_INK_LIGHT : CONTOUR_INK_DARK;
+}
 
 function makeCanvas(w, h) {
   if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(w, h);
@@ -581,38 +591,67 @@ function rgbOf(hex) {
   return [n >> 16, (n >> 8) & 255, n & 255];
 }
 
-let cache = null;   // { key, canvas, info }
+let cache = null;   // { key, canvas, lines, info, cut, cutKey }
 
 // Paint the relief for `view` (see reliefField) under everything else:
-// ground, shading and contours, rendered once into a layer the size of the
-// canvas and reused until the view or the data changes. `groundColor(id)` is
-// a ground id's "#rrggbb"; `colors.label` inks the contours. Returns
-// { interval, estimated, measured, grounds: [id] } for the legend, or null when
-// nothing was drawn.
-export function paintRelief(ctx, view, { width, height, groundColor, colors }) {
+// ground and shading in one layer, contours in another, each rendered once
+// at the canvas's size and reused until the view or the data changes.
+// `groundColor(id)` is a ground id's "#rrggbb"; `colors.halo` (the
+// background) picks the contour ink. `knockout` ({ key, draw(g) }, or null)
+// clears the contours round rooms and along exits, so they're never taken
+// for one: draw(g) paints, in CSS px, what to clear, and is called only when
+// its `key` or the layers change, into a copy of the contour layer kept for
+// it (ground and shading are never cleared). Returns { interval, estimated,
+// measured, grounds: [id] } for the legend, or null when nothing was drawn.
+export function paintRelief(ctx, view, { width, height, groundColor, colors, knockout = null }) {
   const ratio = (ctx.getTransform && ctx.getTransform().a) || 1;
   const grounds = view.grid ? view.grid.ids.map((id) => groundColor(id)).join(",") : "";
   const key = JSON.stringify([
     view.grid ? view.grid.rev : 0, view.roomsSig || "", view.wrapX || 0,
     view.anchor.x, view.anchor.y, view.cx, view.cy, view.scale, width, height, ratio,
-    colors.label, colors.halo, grounds,
+    colors.halo, grounds,
   ]);
   if (!cache || cache.key !== key) {
     const bg = rgbOf(colors.halo);
     const lightBg = !!bg && 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2] > 140;
-    const built = buildLayer(view, width, height, ratio, groundColor, colors.label, lightBg);
-    cache = { key, ...built };
+    const built = buildLayer(view, width, height, ratio, groundColor, lightBg);
+    // The cut copy of the contours is kept across rebuilds while its size holds.
+    const cut = cache && cache.cut && built.lines && cache.cut.width === built.lines.width
+      && cache.cut.height === built.lines.height ? cache.cut : null;
+    cache = { key, ...built, cut, cutKey: null };
   }
   if (cache.canvas) ctx.drawImage(cache.canvas, 0, 0, width, height);
+  if (cache.lines) {
+    let lines = cache.lines;
+    if (knockout) {
+      if (cache.cutKey !== knockout.key || !cache.cut) {
+        cache.cut = cache.cut || makeCanvas(lines.width, lines.height);
+        const g = cache.cut.getContext("2d");
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.globalCompositeOperation = "copy";
+        g.globalAlpha = 1;
+        g.drawImage(lines, 0, 0);
+        g.globalCompositeOperation = "destination-out";
+        g.setTransform(lines.width / width, 0, 0, lines.height / height, 0, 0);
+        knockout.draw(g);
+        g.globalCompositeOperation = "source-over";
+        g.globalAlpha = 1;
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        cache.cutKey = knockout.key;
+      }
+      lines = cache.cut;
+    }
+    ctx.drawImage(lines, 0, 0, width, height);
+  }
   return cache.info;
 }
 
-// For tests: forget the cached layer.
+// For tests: forget the cached layers.
 export function resetReliefCache() { cache = null; }
 
-function buildLayer(view, width, height, ratio, groundColor, ink, lightBg) {
+function buildLayer(view, width, height, ratio, groundColor, lightBg) {
   const field = reliefField(view, width, height);
-  if (!field) return { canvas: null, info: null };
+  if (!field) return { canvas: null, lines: null, info: null };
   const interval = contourInterval(field.min, field.max);
   const info = {
     interval,
@@ -623,7 +662,7 @@ function buildLayer(view, width, height, ratio, groundColor, ink, lightBg) {
   const W = Math.max(1, Math.round(width * ratio)), Ht = Math.max(1, Math.round(height * ratio));
   const layer = makeCanvas(W, Ht);
   const small = makeCanvas(field.cols, field.rows);
-  if (!layer || !small) return { canvas: null, info };
+  if (!layer || !small) return { canvas: null, lines: null, info };
   const g = layer.getContext("2d");
   g.setTransform(ratio, 0, 0, ratio, 0, 0);
   const { i0, k0, cols, rows, cell, H, G, cov, est } = field;
@@ -670,9 +709,15 @@ function buildLayer(view, width, height, ratio, groundColor, ink, lightBg) {
     blit(toImage(feather(rgba, known, cols, rows, est)));
   }
 
-  // Contours: thin, low-contrast, every fifth a little stronger; faded with
-  // the known region's edge.
+  // Contours, in their own layer (so the halo round rooms and exits can be
+  // cut from them alone): thin, sepia, every fifth a little stronger; faded
+  // with the known region's edge.
+  let lines = null;
   if (interval) {
+    lines = makeCanvas(W, Ht);
+    const g = lines.getContext("2d");
+    g.setTransform(ratio, 0, 0, ratio, 0, 0);
+    const ink = contourInk(lightBg);
     const levels = [];
     for (let v = Math.ceil(field.min / interval) * interval; v <= field.max; v += interval) levels.push(v);
     const covAt = (c, r) => cov[Math.min(rows - 1, Math.round(r)) * cols + Math.min(cols - 1, Math.round(c))];
@@ -700,7 +745,7 @@ function buildLayer(view, width, height, ratio, groundColor, ink, lightBg) {
     }
     g.globalAlpha = 1;
   }
-  return { canvas: layer, info };
+  return { canvas: layer, lines, info };
 }
 
 // ── Deleting areas ───────────────────────────────────────────────────────────

@@ -721,6 +721,88 @@ export function bandQuad(b, hw) {
   ];
 }
 
+// The contour halo: where contours are cleared so they're never taken for
+// an exit or a stub. A disc round each room as far as its stubs reach, and a
+// band along each exit line and each stub, in CSS px:
+// { discs: [{ x, y, r }], paths: [[{ x, y }, …]] with each path a polyline
+// (an exit's curve sampled), width }. Pure, for tests.
+export const HALO_ROOM = 2.6;     // disc radius, in half room sizes
+export const HALO_BAND = 1.8;     // band width, in half room sizes…
+export const HALO_BAND_MIN = 10;  // …and at least this many px
+export function knockoutShapes(layout, half) {
+  const discs = layout.rooms.map((r) => ({ x: r.px, y: r.py, r: half * HALO_ROOM }));
+  const paths = [];
+  for (const e of layout.exits) {
+    const g = exitGeometry(e, half);
+    paths.push([g.start, ...curvePoints(g.a, g.c1, g.c2, g.b), g.end]);
+  }
+  for (const s of layout.stubs || []) {
+    const p = exitPort(s.px, s.py, s.dir, half);
+    if (!p) continue;
+    const len = stubLength(s, half);
+    paths.push([{ x: p.x, y: p.y }, { x: p.x + p.ux * len, y: p.y + p.uy * len }]);
+  }
+  return { discs, paths, width: Math.max(HALO_BAND_MIN, half * HALO_BAND) };
+}
+
+// The halo as paintRelief's knockout: { key, draw(g) }, the key changing only
+// when the shapes do. Its edge is softened by clearing a little wider at
+// part strength first.
+const HALO_SOFT = [[1.3, 0.35], [1.12, 0.55], [1, 1]];   // [grow, alpha]
+function contourKnockout(layout, half) {
+  const k = knockoutShapes(layout, half);
+  const parts = [k.width];
+  for (const d of k.discs) parts.push(d.x, d.y, d.r);
+  for (const path of k.paths) { parts.push("|"); for (const q of path) parts.push(q.x, q.y); }
+  return {
+    key: parts.join(","),
+    draw(g) {
+      g.lineCap = "round";
+      g.lineJoin = "round";
+      g.strokeStyle = "#000";
+      g.fillStyle = "#000";
+      for (const [grow, alpha] of HALO_SOFT) {
+        g.globalAlpha = alpha;
+        g.lineWidth = k.width * grow;
+        g.beginPath();
+        for (const path of k.paths) {
+          g.moveTo(path[0].x, path[0].y);
+          for (let i = 1; i < path.length; i++) g.lineTo(path[i].x, path[i].y);
+        }
+        g.stroke();
+        g.beginPath();
+        for (const d of k.discs) {
+          const r = d.r * grow;
+          g.moveTo(d.x + r, d.y);
+          g.arc(d.x, d.y, r, 0, Math.PI * 2);
+        }
+        g.fill();
+      }
+      g.globalAlpha = 1;
+    },
+  };
+}
+
+// Points along a cubic curve, about every 6 px.
+function curvePoints(a, c1, c2, b) {
+  const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 6));
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, u = 1 - t;
+    out.push({
+      x: u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * b.x,
+      y: u * u * u * a.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * b.y,
+    });
+  }
+  return out;
+}
+
+// How far a stub is drawn from its room's side, as draw() does where it has
+// no card.
+function stubLength(s, half) {
+  return s.unexplored ? Math.max(8, half * 2) : Math.max(4, half * 0.9);
+}
+
 // Canvas colours can't reference CSS variables, so the host theme is threaded
 // in via `colors` (mapper.js reads the injected --accent/--border/… tokens with
 // getComputedStyle). Defaults mirror the original dark palette so tests and any
@@ -777,7 +859,9 @@ export function draw(ctx, layout, { roomSize, colors, labels = true, size = null
   let relief = null;
   if (layout.relief && layout.relief.on) {
     if (view) {
-      relief = paintRelief(ctx, layout.relief, { width, height, groundColor: layout.relief.groundColor, colors: c });
+      relief = paintRelief(ctx, layout.relief, {
+        width, height, groundColor: layout.relief.groundColor, colors: c, knockout: contourKnockout(layout, half),
+      });
     }
   }
 
@@ -812,7 +896,7 @@ export function draw(ctx, layout, { roomSize, colors, labels = true, size = null
       continue;
     }
     // A fading stub runs a room's width, so enough of it shows before it's gone.
-    const len = s.unexplored ? Math.max(8, half * 2) : Math.max(4, half * 0.9);
+    const len = stubLength(s, half);
     const ex = p.x + p.ux * len, ey = p.y + p.uy * len;
     ctx.beginPath();
     ctx.moveTo(p.x, p.y);
