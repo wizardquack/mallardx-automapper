@@ -3,6 +3,10 @@
 // of mapper.js so the hand-off is tested — a field dropped here never reaches
 // the graph.
 
+import { hexColor } from "./color.js";
+
+export { hexColor };
+
 export function seenFromFrame(frame) {
   if (!frame || !frame.key) return null;
   return {
@@ -61,13 +65,6 @@ function validExits(list) {
 
 function finiteOr(v) {
   return Number.isFinite(v) ? v : undefined;
-}
-
-// "#rrggbb" or "rrggbb" → "#rrggbb" (lower case), else null.
-export function hexColor(v) {
-  if (typeof v !== "string") return null;
-  const m = /^#?([0-9a-f]{6})$/i.exec(v);
-  return m ? "#" + m[1].toLowerCase() : null;
 }
 
 // A region's kind as sent (extension `regionType`) → "land" or "district";

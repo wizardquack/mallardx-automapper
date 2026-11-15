@@ -9,7 +9,7 @@ import {
   fillColor, roomGlyph, regionColor, regionName, inkOn, envColor, areaRegionColor, areaRegionType,
   elevationRange, shadeAmount, shadeColor, exitStyle, strongerStyle,
 } from "./annotate.js";
-import { reliefArea, paintRelief } from "./relief.js";
+import { reliefArea, paintRelief, makeCanvas } from "./relief.js";
 import { CLOSE_RADIUS, closedAlpha, closeBox, closeStep, closedReach } from "./closing.js";
 
 export { envColor };
@@ -73,6 +73,8 @@ export function computeLayout(map, { cx, cy, scale, areaId, viewedZ = null, path
       env: r.env,
       name: r.name || "",
       // The glyph's ink is worked out from this, so it reads on the shade.
+      // Height shades a user's colour too, on purpose (README, Height
+      // shading): height reads the same on every room.
       fill: shade && elevation ? shadeColor(base, shadeAmount(r.elevation, elevation)) : base,
       glyph: roomGlyph(r, map),
       region: r.region || null,
@@ -693,16 +695,6 @@ function patchKey(p, width, height, ratio, color) {
 function pruneClosed() {
   for (const k of closedCache.keys()) if (!closedSeen.has(k)) closedCache.delete(k);
   closedSeen = new Set();
-}
-
-function makeCanvas(w, h) {
-  if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(w, h);
-  if (typeof document !== "undefined") {
-    const cv = document.createElement("canvas");
-    cv.width = w; cv.height = h;
-    return cv;
-  }
-  return null;
 }
 
 // The four corners of a band `hw` either side of the line from (x1, y1) to

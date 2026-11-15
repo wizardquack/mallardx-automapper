@@ -10,6 +10,7 @@
 
 import { floorNeighbours } from "./floors.js";
 import { linksOf, linkLabel } from "./links.js";
+import { rgbOf } from "./color.js";
 
 // Built-in colours for well-known terrain words, for servers that name a
 // terrain without defining it (IRE's `environment`, a mudstd `terrain` with no
@@ -162,11 +163,8 @@ export function regionHue(key) {
 // A region's tint: the server's colour for it (regionColor, "#rrggbb") at
 // `alpha` where there is one, else the hue hashed from its key.
 export function regionColor(key, alpha = 1, color = null) {
-  const m = /^#([0-9a-f]{6})$/i.exec(String(color || ""));
-  if (m) {
-    const n = parseInt(m[1], 16);
-    return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
-  }
+  const rgb = rgbOf(color);
+  if (rgb) return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
   return `hsla(${regionHue(key)}, 55%, 55%, ${alpha})`;
 }
 
@@ -222,12 +220,11 @@ export function shadeAmount(elevation, range, minSpan = SHADE_MIN_SPAN) {
 // A #rrggbb colour lightened toward white (t > 0) or darkened toward black
 // (t < 0) by |t| × strength. Anything not #rrggbb comes back as it is.
 export function shadeColor(hex, t, strength = SHADE_STRENGTH) {
-  const m = /^#([0-9a-f]{6})$/i.exec(String(hex || ""));
-  if (!m || !t) return hex;
+  const rgb = rgbOf(hex);
+  if (!rgb || !t) return hex;
   const k = Math.max(-1, Math.min(1, t)) * strength;
-  const n = parseInt(m[1], 16);
   const mix = (c) => Math.round(k > 0 ? c + (255 - c) * k : c * (1 + k));
-  return "#" + [n >> 16, (n >> 8) & 255, n & 255].map((c) => mix(c).toString(16).padStart(2, "0")).join("");
+  return "#" + rgb.map((c) => mix(c).toString(16).padStart(2, "0")).join("");
 }
 
 // ── Exit styles ──────────────────────────────────────────────────────────────
@@ -251,10 +248,9 @@ export function strongerStyle(a, b) {
 
 // Black or white text, whichever reads on a #rrggbb fill.
 export function inkOn(hex) {
-  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ""));
-  if (!m) return "#000000";
-  const n = parseInt(m[1], 16);
-  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const rgb = rgbOf(hex);
+  if (!rgb) return "#000000";
+  const [r, g, b] = rgb;
   return 0.299 * r + 0.587 * g + 0.114 * b > 140 ? "#000000" : "#ffffff";
 }
 
@@ -287,7 +283,9 @@ function tagGlyph(map, tag) {
 // fill, glyphs with the tags behind them (the server's glyphs first, in its
 // order, then the built-in ones), regions, and the ways (exit styles) among
 // `exits` (render.js layout exits) when any isn't a plain path. User colours
-// and symbols aren't listed — they mean what the user says they mean.
+// and symbols aren't listed: the user knows what they chose them for. (A
+// user colour is still shaded by height like any fill, on purpose: see
+// README, Height shading.)
 export function legendModel(map, rooms, exits = []) {
   const terrains = new Map(), glyphs = new Map(), regions = new Map();
   for (const r of rooms) {

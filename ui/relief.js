@@ -9,6 +9,8 @@
 // x = i·cell, y = j·cell in the area's units, north +y. The map draws north
 // as -y (identity.js fromServer), so the drawn lattice uses k = -j.
 
+import { rgbOf } from "./color.js";
+
 export const MAX_PATCH = 64;           // cols and rows per patch, at most
 export const CHUNK = 32;               // cells per side of a stored chunk
 export const UNKNOWN_H = -32768;
@@ -620,7 +622,9 @@ export function contourInk(lightBg) {
   return lightBg ? CONTOUR_INK_LIGHT : CONTOUR_INK_DARK;
 }
 
-function makeCanvas(w, h) {
+// A w×h canvas to draw off screen: an OffscreenCanvas where there is one,
+// else a DOM canvas; null where there's neither (tests).
+export function makeCanvas(w, h) {
   if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(w, h);
   if (typeof document !== "undefined") {
     const cv = document.createElement("canvas");
@@ -628,13 +632,6 @@ function makeCanvas(w, h) {
     return cv;
   }
   return null;
-}
-
-function rgbOf(hex) {
-  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ""));
-  if (!m) return null;
-  const n = parseInt(m[1], 16);
-  return [n >> 16, (n >> 8) & 255, n & 255];
 }
 
 let cache = null;   // { key, canvas, lines, info, cut, cutKey }
