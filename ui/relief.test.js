@@ -106,6 +106,18 @@ describe("mergePatch", () => {
     expect(g.height(0, 0)).toBe(9);
   });
 
+  it("keeps the old grid for an all-unknown patch at a new cell size", () => {
+    const m = createMap();
+    mergePatch(m, decodePatch(patch()));
+    const before = m.relief.a[0];
+    expect(mergePatch(m, decodePatch(patch({ cell: 1, height: [null, null, null, null] })))).toBe(false);
+    expect(m.relief.a[0]).toBe(before);
+    expect(before.height(0, 0)).toBe(1);
+    // Its first known cell replaces it, and that's a change.
+    expect(mergePatch(m, decodePatch(patch({ cell: 1, height: [null, 6, null, null] })))).toBe(true);
+    expect(m.relief.a[0].cell).toBe(1);
+  });
+
   it("keeps floors and areas apart", () => {
     const m = createMap();
     mergePatch(m, decodePatch(patch()));

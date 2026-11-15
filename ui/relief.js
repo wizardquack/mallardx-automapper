@@ -225,9 +225,16 @@ export function wrapI(i, wc) {
 
 // Merge a decoded patch into the map: known cells overwrite, unknown ones
 // never erase; a patch with another `cell` for that area and floor replaces
-// the grid. x is kept modulo the area's wrap (`wrapX`, map units) where it
-// has one. True if anything changed.
+// the grid, once it has a known cell (a patch of nothing but unknowns
+// changes nothing, whatever its cell). x is kept modulo the area's wrap
+// (`wrapX`, map units) where it has one. True if anything changed.
 export function mergePatch(map, p, wrapX = null) {
+  const n = p.cols * p.rows;
+  let anyKnown = false;
+  for (let k = 0; k < n && !anyKnown; k++) {
+    if (p.height[k] !== UNKNOWN_H || (p.ground && p.ground[k] !== UNKNOWN_G)) anyKnown = true;
+  }
+  if (!anyKnown) return false;
   map.relief = map.relief || {};
   const floors = (map.relief[p.area] = map.relief[p.area] || {});
   let grid = floors[p.z];
@@ -253,12 +260,6 @@ export function mergePatch(map, p, wrapX = null) {
     }
   }
   if (changed) grid.rev = ++REV;
-  // A patch of nothing but unknowns shouldn't leave an empty grid behind.
-  if (grid.size === 0) {
-    delete floors[p.z];
-    if (Object.keys(floors).length === 0) delete map.relief[p.area];
-    return false;
-  }
   return changed;
 }
 
