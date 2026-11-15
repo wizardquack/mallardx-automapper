@@ -278,8 +278,19 @@ export function reliefArea(area) {
 // Estimated heights reach this far from a room (map units), fading from
 // FALLBACK_FULL out; and aren't made within FALLBACK_REACH of a grid cell
 // that's known. FALLBACK_CELL is the lattice for an area with no grid.
+// Between rooms they reach further: a cell with rooms on two sides of it
+// (two seen from it at least INTERP_ANGLE_FULL apart, fading to none at
+// INTERP_ANGLE_NONE) is estimated where both are within INTERP_FULL,
+// fading out to INTERP_REACH, so the gaps between rooms two or three units
+// apart fill in, while past the rooms' outer edge (rooms on one side only)
+// the estimate still ends at about FALLBACK_REACH.
 export const FALLBACK_REACH = 1.5;
 export const FALLBACK_FULL = 0.75;
+export const INTERP_REACH = 2.5;
+export const INTERP_FULL = 1.9;
+const INTERP_COS_FULL = -0.5;    // 120°
+const INTERP_COS_NONE = 0;       // 90°
+const INTERP_MOST = 10;          // nearest rooms considered for a pair
 export const FALLBACK_CELL = 0.25;
 const FALLBACK_SIGMA = 0.7;
 // More columns or rows than this in view and nothing is drawn: the cells
@@ -346,7 +357,8 @@ export function reliefField(view, width, height) {
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key).push(rm);
     }
-    const reach = Math.ceil(FALLBACK_REACH);
+    const reach = Math.ceil(INTERP_REACH);
+    const near_ = [];   // rooms within INTERP_REACH of the cell: [d, ux, uy]
     for (let r = 0; r < rows; r++) {
       const y = (k0 + r) * cell;
       for (let c = 0; c < cols; c++) {
@@ -355,23 +367,30 @@ export function reliefField(view, width, height) {
         const x = (i0 + c) * cell;
         const bx = Math.floor(x), by = Math.floor(y);
         let sw = 0, swe = 0, dmin = Infinity;
+        near_.length = 0;
         for (let dx = -reach; dx <= reach; dx++) {
           for (let dy = -reach; dy <= reach; dy++) {
             const list = buckets.get(`${bx + dx},${by + dy}`);
             if (!list) continue;
             for (const rm of list) {
               const d = Math.hypot(rm.x - x, rm.y - y);
-              if (d > FALLBACK_REACH) continue;
+              if (d > INTERP_REACH) continue;
               if (d < dmin) dmin = d;
+              near_.push([d, d > 0 ? (rm.x - x) / d : 0, d > 0 ? (rm.y - y) / d : 0]);
               const w = Math.exp(-(d * d) / (FALLBACK_SIGMA * FALLBACK_SIGMA));
               sw += w; swe += w * rm.e;
             }
           }
         }
         if (dmin === Infinity || !(sw > 0)) continue;
+        const f = Math.max(
+          smooth(Math.min(1, (FALLBACK_REACH - dmin) / (FALLBACK_REACH - FALLBACK_FULL))),
+          between(near_),
+        );
+        if (f <= 0 && dmin > FALLBACK_REACH) continue;
         H[k] = swe / sw;
         est[k] = 1;
-        cov[k] = smooth(Math.min(1, (FALLBACK_REACH - dmin) / (FALLBACK_REACH - FALLBACK_FULL)));
+        cov[k] = f;
         any = true;
       }
     }
@@ -386,6 +405,33 @@ export function reliefField(view, width, height) {
   }
   if (min === Infinity) return null;
   return { i0, k0, cols, rows, cell, H, G, cov, est, known, min, max, ids: grid ? grid.ids : [] };
+}
+
+// How much a cell lies between rooms (0…1): the best pair of the nearest
+// rooms round it ([d, ux, uy] each: distance and unit vector from the cell),
+// by how far apart they are seen from it and how near the further one is.
+// One room, or rooms all to one side, give 0. Sorts `near`.
+export function between(near) {
+  if (near.length < 2) return 0;
+  near.sort((a, b) => a[0] - b[0]);
+  const n = Math.min(near.length, INTERP_MOST);
+  let best = 0;
+  for (let i = 0; i < n; i++) {
+    const [di, xi, yi] = near[i];
+    if (di === 0) return 1;
+    for (let j = i + 1; j < n; j++) {
+      const [dj, xj, yj] = near[j];
+      // j is the further: its distance sets the fade.
+      const fd = smooth((INTERP_REACH - dj) / (INTERP_REACH - INTERP_FULL));
+      if (fd <= best) break;
+      const cos = xi * xj + yi * yj;
+      const fa = smooth((INTERP_COS_NONE - cos) / (INTERP_COS_NONE - INTERP_COS_FULL));
+      const v = fd * fa;
+      if (v > best) best = v;
+      if (best >= 1) return 1;
+    }
+  }
+  return best;
 }
 
 function smooth(t) {

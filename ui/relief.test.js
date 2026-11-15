@@ -3,7 +3,7 @@ import {
   decodePatch, mergePatch, clearRelief, reliefArea, ReliefGrid, reliefFromJSON,
   b64FromBytes, bytesFromB64, wrapCells, wrapI, contourInterval, contourSegments,
   reliefField, hillshade, areasWithRooms, clearEmptiedRelief, UNKNOWN_H, UNKNOWN_G, CHUNK, FALLBACK_REACH,
-  paintRelief, resetReliefCache, contourInk, CONTOUR_INK_DARK, CONTOUR_INK_LIGHT, CONTOUR_ALPHA, INDEX_CONTOUR_ALPHA,
+  paintRelief, resetReliefCache, between, INTERP_REACH, contourInk, CONTOUR_INK_DARK, CONTOUR_INK_LIGHT, CONTOUR_ALPHA, INDEX_CONTOUR_ALPHA,
 } from "./relief.js";
 import { createMap, toJSON, fromJSON } from "./graph.js";
 
@@ -308,6 +308,42 @@ describe("reliefField", () => {
     const mid = (0 - f.k0) * f.cols + (2 - f.i0);
     expect(f.H[mid]).toBeGreaterThan(100);
     expect(f.H[mid]).toBeLessThan(200);
+  });
+
+  it("fills between rooms 2.5 apart, but not 2.5 beyond the last room", () => {
+    const rooms = [{ x: 0, y: 0, e: 100 }, { x: 2.5, y: 0, e: 200 }];
+    const f = reliefField(view({ rooms }), 300, 200);
+    const at = (x, y) => Math.round(y / f.cell - f.k0) * f.cols + Math.round(x / f.cell - f.i0);
+    // Halfway, 1.25 from each: fully drawn now (the old 1.5 reach left it at a quarter).
+    expect(f.cov[at(1.25, 0)]).toBe(1);
+    expect(f.H[at(1.25, 0)]).toBeCloseTo(150);
+    // A little off the line between them, still drawn.
+    expect(f.cov[at(1.25, 0.5)]).toBeGreaterThan(0.5);
+    // 2.5 beyond the last room (and well out to the side): nothing.
+    expect(Number.isNaN(f.H[at(5, 0)])).toBe(true);
+    expect(Number.isNaN(f.H[at(-2.5, 0)])).toBe(true);
+    expect(Number.isNaN(f.H[at(1.25, 2)])).toBe(true);
+    // Just past the old reach beyond the end, it still fades out as before.
+    expect(Number.isNaN(f.H[at(4.25, 0)])).toBe(true);
+  });
+
+  it("doesn't reach past a straight edge of rooms further than before", () => {
+    const rooms = [...Array(9)].map((_, i) => ({ x: i - 4, y: 0, e: 10 * i }));
+    const f = reliefField(view({ rooms }), 300, 200);
+    const at = (x, y) => Math.round(y / f.cell - f.k0) * f.cols + Math.round(x / f.cell - f.i0);
+    // 1.25 out: just the old fade from the nearest room, nothing added.
+    const t = (FALLBACK_REACH - 1.25) / 0.75;
+    expect(f.cov[at(0, 1.25)]).toBeCloseTo(t * t * (3 - 2 * t), 5);
+    expect(Number.isNaN(f.H[at(0, 1.75)])).toBe(true);
+  });
+
+  it("between: a pair on two sides, near enough, not one side or one room", () => {
+    const u = (deg, d) => [d, Math.cos(deg * Math.PI / 180), Math.sin(deg * Math.PI / 180)];
+    expect(between([u(0, 1)])).toBe(0);
+    expect(between([u(0, 1.2), u(180, 1.2)])).toBe(1);
+    expect(between([u(0, 1.2), u(60, 1.2)])).toBe(0);          // one side
+    expect(between([u(0, 1.2), u(180, INTERP_REACH)])).toBe(0); // too far
+    expect(between([u(0, 1.2), u(120, 1.5)])).toBe(1);
   });
 
   it("doesn't estimate near cells the grid knows", () => {

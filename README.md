@@ -199,8 +199,12 @@ underneath.
 
 **Estimated relief.** Where an area has rooms with an `elevation` but no grid
 near them (within 1.5 map units), heights are estimated from those rooms,
-reaching about 1.5 units out from them and fading. Only shading and contours
-are drawn from an estimate, never ground colour.
+reaching about 1.5 units out from them and fading. Between rooms it reaches
+further (0.13.1): a spot with rooms on two sides of it (seen at least 90°
+apart, fully at 120°) within about 2.5 units is filled in, so the ground
+between rooms two or three units apart isn't left as holes; past the outer
+edge of the rooms it still ends at about 1.5 units. Only shading and
+contours are drawn from an estimate, never ground colour.
 
 The **◭** button turns relief off and on with the room shading; it shows
 while the floor has a grid or rooms with an elevation. The **?** legend's
