@@ -874,15 +874,34 @@ export function areasWithRooms(map) {
 
 // After the user deletes rooms: forget the grids of each area that had rooms
 // (`had`, from areasWithRooms before) and now has none. An area the map knows
-// only by its relief, sent before you've been there, is left alone. True if
-// any were cleared.
+// only by its relief, sent before you've been there, is left alone. Returns
+// what was cleared, { [area]: floors }, for the edit's undo (swapRelief), or
+// null if nothing was.
 export function clearEmptiedRelief(map, had) {
   const now = areasWithRooms(map);
-  let cleared = false;
+  const areas = [];
   for (const id of had) {
     if (now.has(id)) continue;
     const key = reliefArea(map.areas && map.areas[id]);
-    if (key && clearRelief(map, key)) cleared = true;
+    if (key && map.relief && map.relief[key]) areas.push(key);
   }
-  return cleared;
+  return areas.length ? swapRelief(map, { clear: areas }).put : null;
+}
+
+// Undo and redo for an edit that cleared relief: `change` is { put: {
+// [area]: floors } to put back, clear: [area] to forget }. Returns the
+// change that reverses it, in the same form.
+export function swapRelief(map, change) {
+  const back = { put: {}, clear: [] };
+  for (const area of change.clear || []) {
+    if (!map.relief || !map.relief[area]) continue;
+    back.put[area] = map.relief[area];
+    delete map.relief[area];
+  }
+  for (const area of Object.keys(change.put || {})) {
+    map.relief = map.relief || {};
+    map.relief[area] = change.put[area];
+    back.clear.push(area);
+  }
+  return back;
 }

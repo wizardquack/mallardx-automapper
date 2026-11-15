@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   decodePatch, mergePatch, clearRelief, reliefArea, ReliefGrid, reliefFromJSON,
   b64FromBytes, bytesFromB64, wrapCells, wrapI, contourInterval, contourSegments,
-  reliefField, hillshade, areasWithRooms, clearEmptiedRelief, UNKNOWN_H, UNKNOWN_G, CHUNK, FALLBACK_REACH,
+  reliefField, hillshade, areasWithRooms, clearEmptiedRelief, swapRelief, UNKNOWN_H, UNKNOWN_G, CHUNK, FALLBACK_REACH,
   paintRelief, resetReliefCache, areaWraps, rewrapRelief, between, INTERP_REACH, contourInk, CONTOUR_INK_DARK, CONTOUR_INK_LIGHT, CONTOUR_ALPHA, INDEX_CONTOUR_ALPHA,
 } from "./relief.js";
 import { createMap, toJSON, fromJSON, addRoom, addArea } from "./graph.js";
@@ -432,8 +432,25 @@ describe("clearEmptiedRelief", () => {
     mergePatch(m, decodePatch(patch({ area: "c" })));   // no rooms there yet
     const had = areasWithRooms(m);
     delete m.rooms[1];
-    expect(clearEmptiedRelief(m, had)).toBe(true);
+    const a = m.relief.a;
+    const cleared = clearEmptiedRelief(m, had);
+    expect(cleared).toEqual({ a });
     expect(Object.keys(m.relief).sort()).toEqual(["b", "c"]);
+    expect(clearEmptiedRelief(m, areasWithRooms(m))).toBe(null);
+  });
+
+  it("swapRelief puts back what an edit cleared, and clears it again", () => {
+    const m = createMap();
+    mergePatch(m, decodePatch(patch({ area: "a" })));
+    const a = m.relief.a;
+    const undo = { put: { a } };
+    delete m.relief.a;
+    const redo = swapRelief(m, undo);
+    expect(m.relief.a).toBe(a);
+    expect(redo).toEqual({ put: {}, clear: ["a"] });
+    const again = swapRelief(m, redo);
+    expect(m.relief.a).toBeUndefined();
+    expect(again.put.a).toBe(a);
   });
 });
 

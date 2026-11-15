@@ -13,7 +13,7 @@ import { addLink, deleteLink, setLinkOneWay, setLinkField, linksOf, hasWay, offe
 import { createHistory } from "./history.js";
 import { roomMenuModel, selectionMenuModel } from "./editmenu.js";
 import { addArea } from "./graph.js";
-import { decodePatch, mergePatch, areasWithRooms, clearEmptiedRelief, areaWraps, rewrapRelief } from "./relief.js";
+import { decodePatch, mergePatch, areasWithRooms, clearEmptiedRelief, swapRelief, areaWraps, rewrapRelief } from "./relief.js";
 import { resolveRoomSeen, contradicts } from "./identity.js";
 import { seenFromFrame, terrainsFromFrame, tagDefsFromFrame } from "./seen.js";
 import { importChart } from "./chart.js";
@@ -90,36 +90,47 @@ function schedulePersist() {
 // persistence, and rendering uniform.
 // Snapshots leave the relief grids out (graph.js toJSON): edits don't change
 // them, bar deleting an area's last room, and the live grids carry across an
-// undo or redo.
+// undo or redo. That one edit records the grids it cleared (`editRelief`,
+// set by deleteRooms) in its history entry, so undo puts them back and redo
+// clears them again (relief.js swapRelief). An entry is { json, relief }.
+let editRelief = null;
 function applyEdit(fn) {
   const before = toJSON(map, { relief: false });
+  editRelief = null;
   const ok = fn();
+  const cleared = editRelief;
+  editRelief = null;
   if (!ok) return false;
   syncWraps();
-  history.push(before);
+  history.push({ json: before, relief: cleared ? { put: cleared } : null });
   rebuildAreaSelect();
   redraw();
   schedulePersist();
   return true;
 }
 
-function restoreSnapshot(json) {
+// Move to a history entry; `here` is the entry for the state left, which
+// takes the reverse of the entry's relief change.
+function restoreSnapshot(entry, here) {
   const relief = map.relief;
-  map = fromJSON(json);
+  map = fromJSON(entry.json);
   map.relief = relief;
+  if (entry.relief) here.relief = swapRelief(map, entry.relief);
   syncWraps();
 }
 
 function doUndo() {
-  const restored = history.undo(toJSON(map, { relief: false }));
+  const here = { json: toJSON(map, { relief: false }), relief: null };
+  const restored = history.undo(here);
   if (restored == null) return;
-  restoreSnapshot(restored);
+  restoreSnapshot(restored, here);
   focusCurrentArea(); rebuildAreaSelect(); redraw(); schedulePersist();
 }
 function doRedo() {
-  const restored = history.redo(toJSON(map, { relief: false }));
+  const here = { json: toJSON(map, { relief: false }), relief: null };
+  const restored = history.redo(here);
   if (restored == null) return;
-  restoreSnapshot(restored);
+  restoreSnapshot(restored, here);
   focusCurrentArea(); rebuildAreaSelect(); redraw(); schedulePersist();
 }
 
@@ -715,7 +726,10 @@ panel.on("learn_line", (frame) => {
 function deleteRooms(ids) {
   const had = areasWithRooms(map);
   const ok = ids.length === 1 ? deleteRoom(map, ids[0]) : editEach(map, ids, deleteRoom);
-  if (ok) clearEmptiedRelief(map, had);
+  if (ok) {
+    const cleared = clearEmptiedRelief(map, had);
+    if (cleared) editRelief = { ...(editRelief || {}), ...cleared };
+  }
   return ok;
 }
 
